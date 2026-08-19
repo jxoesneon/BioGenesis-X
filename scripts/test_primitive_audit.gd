@@ -168,8 +168,9 @@ func _collect_meshes(node: Node, path: String, out: Array[Dictionary]) -> void:
 					else:
 						prim_count += verts.size() / 3
 
-			# Check LOD
-			lod_enabled = mesh.get_lod_count() > 1
+			# Check LOD (only ArrayMesh supports LOD; SphereMesh/BoxMesh/etc don't)
+			if mesh is ArrayMesh:
+				lod_enabled = mesh.get_lod_count() > 1
 			if mi.lod_bias > 0:
 				lod_enabled = true
 
@@ -262,12 +263,15 @@ func _check_procedural_systems(scene: Node) -> void:
 			var v: int = 0
 			for s in range(mi.mesh.get_surface_count()):
 				var arr: Array = mi.mesh.surface_get_arrays(s)
-				if arr.size() > ArrayMesh.ARRAY_INDEX:
+				if arr.size() > ArrayMesh.ARRAY_INDEX and arr[ArrayMesh.ARRAY_INDEX] is PackedInt32Array:
 					p += (arr[ArrayMesh.ARRAY_INDEX] as PackedInt32Array).size() / 3
-				if arr.size() > ArrayMesh.ARRAY_VERTEX:
+				elif arr.size() > ArrayMesh.ARRAY_VERTEX and arr[ArrayMesh.ARRAY_VERTEX] is PackedVector3Array:
+					p += (arr[ArrayMesh.ARRAY_VERTEX] as PackedVector3Array).size() / 3
+				if arr.size() > ArrayMesh.ARRAY_VERTEX and arr[ArrayMesh.ARRAY_VERTEX] is PackedVector3Array:
 					v += (arr[ArrayMesh.ARRAY_VERTEX] as PackedVector3Array).size()
+			var lod_n: int = mi.mesh.get_lod_count() if mi.mesh is ArrayMesh else 0
 			print("  ProceduralBioMesh: prims=%s verts=%s surfaces=%d LOD=%d" % [
-				_fmt_int(p), _fmt_int(v), mi.mesh.get_surface_count(), mi.mesh.get_lod_count()
+				_fmt_int(p), _fmt_int(v), mi.mesh.get_surface_count(), lod_n
 			])
 
 	# Starfield

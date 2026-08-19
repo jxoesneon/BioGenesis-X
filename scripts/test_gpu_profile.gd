@@ -211,6 +211,7 @@ func _sample_gpu() -> void:
 	_phase_samples.append(sample)
 
 
+
 func _summarize_phase(phase: int, samples: Array[Dictionary]) -> Dictionary:
 	var report: Dictionary = {
 		"phase": _phase_name(phase),

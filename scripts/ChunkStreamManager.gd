@@ -95,6 +95,11 @@ var _system_seed: int = 0
 # Active chunks: key = "far_x:far_z" or "near_x:near_z", value = ChunkData
 var _active_far_chunks: Dictionary = {}
 var _active_near_chunks: Dictionary = {}
+# Tracks chunks dispatched to worker threads but not yet mounted.
+# Prevents duplicate loads: _update_*_chunks() re-queues chunks every frame
+# until they appear in _active_*_chunks, but threaded generation takes multiple
+# frames. Without this set, the same chunk gets dispatched N times.
+var _pending_chunks: Dictionary = {}
 
 # Load/unload queues (priority-ordered)
 var _load_queue: Array[Dictionary] = []
@@ -294,7 +299,7 @@ func _update_far_chunks(ship_pos: Vector3) -> void:
 			var key: String = "far_%d:%d" % [cx, cz]
 			needed[key] = true
 
-			if not _active_far_chunks.has(key):
+			if not _active_far_chunks.has(key) and not _pending_chunks.has(key):
 				# Queue for loading with priority by distance
 				var dist: float = sqrt(float(dx * dx + dz * dz))
 				_load_queue.append({
@@ -326,7 +331,7 @@ func _update_near_chunks(ship_pos: Vector3) -> void:
 			var key: String = "near_%d:%d" % [cx, cz]
 			needed[key] = true
 
-			if not _active_near_chunks.has(key):
+			if not _active_near_chunks.has(key) and not _pending_chunks.has(key):
 				var dist: float = sqrt(float(dx * dx + dz * dz))
 				# Near-field has higher priority than far-field
 				_load_queue.append({
@@ -421,6 +426,8 @@ func _dispatch_threaded_chunk_load(req: Dictionary) -> void:
 	}
 
 	WorkerThreadPool.add_task(Callable(self, "_worker_generate_chunk_data").bind(params))
+	# Mark as pending to prevent re-dispatching on subsequent frames
+	_pending_chunks[key] = true
 
 ## Runs on a background thread. Computes all chunk data WITHOUT touching the scene tree.
 func _worker_generate_chunk_data(params: Dictionary) -> void:
@@ -635,6 +642,7 @@ func _mount_far_chunk_from_data(data: Dictionary) -> void:
 	add_child(chunk_node)
 
 	# Register chunk data
+	_pending_chunks.erase(key)
 	_active_far_chunks[key] = {
 		"node": chunk_node,
 		"cx": cx,
@@ -684,6 +692,7 @@ func _mount_near_chunk_from_data(data: Dictionary) -> void:
 	add_child(chunk_node)
 
 	# Register chunk data
+	_pending_chunks.erase(key)
 	_active_near_chunks[key] = {
 		"node": chunk_node,
 		"cx": cx,
@@ -905,6 +914,7 @@ func _unload_far_chunk(key: String) -> void:
 		_clean_despawn_node(node)
 		node.queue_free()
 	_active_far_chunks.erase(key)
+	_pending_chunks.erase(key)
 	_chunk_signal_registry.erase(key)
 	chunk_unloaded.emit(key)
 
@@ -917,6 +927,7 @@ func _unload_near_chunk(key: String) -> void:
 		_clean_despawn_node(node)
 		node.queue_free()
 	_active_near_chunks.erase(key)
+	_pending_chunks.erase(key)
 	_chunk_signal_registry.erase(key)
 	chunk_unloaded.emit(key)
 
