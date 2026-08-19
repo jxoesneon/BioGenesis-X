@@ -397,6 +397,8 @@ func _flash_hit() -> void:
 	var mesh: MeshInstance3D = get_node_or_null("MeshInstance3D") as MeshInstance3D
 	if mesh and mesh.material_override:
 		var mat: StandardMaterial3D = mesh.material_override as StandardMaterial3D
+		if mat == null:
+			return
 		mat.emission_energy_multiplier = 8.0
 		if is_inside_tree() and get_tree():
 			await get_tree().create_timer(0.1).timeout

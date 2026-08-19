@@ -317,9 +317,9 @@ func _spawn_impact_particles(pos: Vector3, hit_shield: bool) -> void:
 		return
 	# Use the projectile's travel direction as an approximate surface normal so
 	# the bio-impact burn decal orients flat against the hit surface.
-	var fx := CombatVFX.spawn_impact(pos, projectile_color, hit_shield, damage, -direction)
-	if fx and get_tree().current_scene:
-		get_tree().current_scene.add_child(fx)
+	# CombatVFX.spawn_impact already reparents the VFX node to the current scene,
+	# so we must NOT call add_child here — that would double-parent the node.
+	var _fx := CombatVFX.spawn_impact(pos, projectile_color, hit_shield, damage, -direction)
 
 # ==============================================================================
 # Homing — 3D proportional navigation (ported from All Projectiles seek_target)
