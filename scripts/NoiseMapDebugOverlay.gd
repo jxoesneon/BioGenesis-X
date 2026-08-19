@@ -155,8 +155,8 @@ func _set_overlay_visible(vis: bool) -> void:
 		if plane and is_instance_valid(plane):
 			plane.visible = vis and _channel_visible.get(channel, true)
 
-func set_channel_visible(channel: int, is_visible: bool) -> void:
-	_channel_visible[channel] = is_visible
+func set_channel_visible(channel: int, p_visible: bool) -> void:
+	_channel_visible[channel] = p_visible
 	if _planes.has(channel):
 		var plane: MeshInstance3D = _planes[channel]
 		if plane and is_instance_valid(plane):
