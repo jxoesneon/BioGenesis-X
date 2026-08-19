@@ -22,6 +22,22 @@ var is_missile: bool = false
 
 ## Hit marker signal — emitted on impact, consumed by FlightHUDUI
 signal projectile_hit(hit_point: Vector3, hit_shield: bool, target_killed: bool)
+## Emitted when the projectile is deactivated (impact or lifetime expired).
+## Consumed by WeaponSystem's object pool to return this instance to the pool.
+signal projectile_deactivated
+
+# --- Homing (ported from All Projectiles seek_target technique) ---
+## If set and homing_enabled, the projectile steers toward this node every frame.
+var homing_target: Node3D = null
+## Max turn rate in degrees per second (0 = no homing). Clamped per-frame.
+var homing_angular_speed: float = 0.0
+var homing_enabled: bool = false
+
+# --- Object Pooling (ported from All Projectiles inactive_projectiles_queue) ---
+## When true, this instance is managed by WeaponSystem's pool and is recycled
+## via activate()/deactivate() instead of queue_free().
+var is_pooled: bool = false
+var _is_active: bool = true
 
 var _mesh_instance: MeshInstance3D
 var _light: OmniLight3D
@@ -82,16 +98,46 @@ func setup_visuals(p_color: Color, p_radius: float, p_is_missile: bool) -> void:
 		_trail_max_points = 20
 	else:
 		_trail_max_points = 10
+	_refresh_visuals()
+
+## Updates the existing mesh/light to match the current projectile_color/radius.
+## Called both on first creation (after _create_visuals) and on pool reuse, so
+## missiles (orange) and disruptors (cyan) render with their correct colors.
+func _refresh_visuals() -> void:
+	if _mesh_instance and is_instance_valid(_mesh_instance):
+		var sphere := _mesh_instance.mesh as SphereMesh
+		if sphere:
+			sphere.radius = projectile_radius
+			sphere.height = projectile_radius * 2.0
+			var mat := sphere.material as StandardMaterial3D
+			if mat:
+				mat.albedo_color = projectile_color
+				mat.emission = projectile_color
+	if _light and is_instance_valid(_light):
+		_light.light_color = projectile_color
+
+## Enables ongoing proportional homing toward `target`.
+## `angular_speed_deg` is the max turn rate in degrees per second — the projectile
+## steers toward the target every physics frame, clamped to this rate. This is the
+## 3D equivalent of All Projectiles' Projectile2D.seek_target() clamped-angle turn.
+func setup_homing(target: Node3D, angular_speed_deg: float) -> void:
+	homing_target = target
+	homing_angular_speed = angular_speed_deg
+	homing_enabled = angular_speed_deg > 0.0 and is_instance_valid(target)
 
 func _physics_process(delta: float) -> void:
-	if is_queued_for_deletion():
+	if is_queued_for_deletion() or not _is_active:
 		return
 
 	_age += delta
 	lifetime -= delta
 	if lifetime <= 0.0:
-		queue_free()
+		_deactivate()
 		return
+
+	# Ongoing proportional homing — steers toward the target every frame, clamped
+	# to homing_angular_speed deg/s. Ported from All Projectiles' seek_target().
+	_apply_homing(delta)
 
 	# Animate glow pulse
 	if _mesh_instance and is_instance_valid(_mesh_instance):
@@ -122,7 +168,7 @@ func _physics_process(delta: float) -> void:
 					_apply_impact(collider as Node, hit_pos)
 				else:
 					_spawn_impact_particles(hit_pos, false)
-					queue_free()
+					_deactivate()
 				return
 
 	# Overlapping bodies & areas fallback check
@@ -154,12 +200,12 @@ func _on_area_entered(area: Area3D) -> void:
 	_apply_impact(area, global_position)
 
 func _apply_impact(target: Node, hit_point: Vector3 = Vector3.ZERO) -> void:
-	if is_queued_for_deletion():
+	if is_queued_for_deletion() or not _is_active:
 		return
 
 	if not is_instance_valid(target):
 		_spawn_impact_particles(hit_point, false)
-		queue_free()
+		_deactivate()
 		return
 
 	var impulse: Vector3 = direction * (damage * 2000.0)
@@ -242,7 +288,7 @@ func _apply_impact(target: Node, hit_point: Vector3 = Vector3.ZERO) -> void:
 	if ml is SceneTree and ml.root and ml.root.has_node("BioAudioSynth"):
 		ml.root.get_node("BioAudioSynth").play_shield_impact()
 
-	queue_free()
+	_deactivate()
 
 func _notify_hit_marker(hit_shield: bool, target_killed: bool) -> void:
 	if not is_inside_tree() or not get_tree():
@@ -261,3 +307,79 @@ func _spawn_impact_particles(pos: Vector3, hit_shield: bool) -> void:
 	var fx := CombatVFX.spawn_impact(pos, projectile_color, hit_shield, damage)
 	if fx and get_tree().current_scene:
 		get_tree().current_scene.add_child(fx)
+
+# ==============================================================================
+# Homing — 3D proportional navigation (ported from All Projectiles seek_target)
+# ==============================================================================
+## Steers `direction` toward homing_target every frame, clamped to
+## homing_angular_speed deg/s. The 2D asset rotates by a clamped signed angle;
+## the 3D equivalent rotates around the axis perpendicular to both the current
+## direction and the desired direction.
+func _apply_homing(delta: float) -> void:
+	if not homing_enabled or homing_angular_speed <= 0.0:
+		return
+	if not is_instance_valid(homing_target):
+		homing_enabled = false
+		homing_target = null
+		return
+
+	var to_target: Vector3 = (homing_target.global_position - global_position).normalized()
+	var current_dir: Vector3 = direction.normalized()
+	var angle: float = current_dir.angle_to(to_target)
+	if angle < 0.0001:
+		return
+
+	var max_turn: float = deg_to_rad(homing_angular_speed * delta)
+	if angle <= max_turn:
+		direction = to_target
+		return
+
+	# Rotation axis = perpendicular to both vectors (handles full 3D pitch/yaw)
+	var axis: Vector3 = current_dir.cross(to_target)
+	if axis.length_squared() < 1e-12:
+		return
+	axis = axis.normalized()
+	direction = current_dir.rotated(axis, max_turn).normalized()
+
+# ==============================================================================
+# Object Pooling — activate/deactivate lifecycle (ported from All Projectiles
+# inactive_projectiles_queue pattern). Instead of queue_free() on every impact,
+# the projectile is recycled by WeaponSystem's pool to avoid frequent
+# instantiate/destroy churn during rapid-fire combat.
+# ==============================================================================
+
+## Reactivates a pooled projectile for a new shot. Resets all per-shot state and
+## re-enables physics processing, monitoring, and visibility.
+func activate() -> void:
+	_is_active = true
+	_age = 0.0
+	homing_target = null
+	homing_enabled = false
+	homing_angular_speed = 0.0
+	set_physics_process(true)
+	monitorable = true
+	monitoring = true
+	visible = true
+	# Re-connect signals in case this instance was freshly created and _ready
+	# hasn't run yet (pool creates instances lazily and adds them to the tree).
+	if not body_entered.is_connected(_on_body_entered):
+		body_entered.connect(_on_body_entered)
+	if not area_entered.is_connected(_on_area_entered):
+		area_entered.connect(_on_area_entered)
+
+## Deactivates the projectile and returns it to the pool (if pooled) or frees it.
+## Emits projectile_deactivated so WeaponSystem can reclaim the instance.
+func _deactivate() -> void:
+	if not _is_active:
+		return
+	_is_active = false
+	set_physics_process(false)
+	monitorable = false
+	monitoring = false
+	visible = false
+	# Move far off-screen so it can't be picked up by overlap/proximity checks
+	# while idle in the pool.
+	global_position = Vector3(1e9, 1e9, 1e9)
+	projectile_deactivated.emit()
+	if not is_pooled:
+		queue_free()

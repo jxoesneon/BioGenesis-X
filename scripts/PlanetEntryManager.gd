@@ -194,7 +194,8 @@ func _process(_delta: float) -> void:
 	if _terrain_generator != null and is_instance_valid(_terrain_generator):
 		# Gate LOD recompute by terrain_lod_distance to avoid per-frame churn.
 		if ship_pos.distance_to(_last_lod_position) > terrain_lod_distance * 0.02:
-			_terrain_generator.update_lod(ship_pos)
+			var cam: Camera3D = get_viewport().get_camera_3d() if get_viewport() != null else null
+			_terrain_generator.update_lod(ship_pos, cam)
 			_last_lod_position = ship_pos
 
 # ==============================================================================

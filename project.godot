@@ -44,7 +44,7 @@ window/stretch/aspect="expand"
 
 [editor_plugins]
 
-enabled=PackedStringArray("res://addons/godot_mcp/plugin.cfg")
+enabled=PackedStringArray("res://addons/godot_mcp/plugin.cfg", "res://addons/debug_api/plugin.cfg", "res://addons/dialogue_manager/plugin.cfg", "res://addons/locguard_lite/plugin.cfg", "res://addons/extremely_fast_atmosphere/plugin.cfg", "res://addons/procedural_textures/plugin.cfg", "res://addons/quest_weaver/plugin.cfg", "res://addons/juicee/plugin.cfg", "res://addons/boujie_water_shader/plugin.cfg", "res://addons/godot_shaders_library/plugin.cfg")
 
 [input]
 

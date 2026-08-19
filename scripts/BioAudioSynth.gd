@@ -136,6 +136,17 @@ var _music_perc_active: bool = false
 var _music_perc_time: float = 0.0
 var _music_lead_phase: float = 0.0
 
+# --- 1e. ARPEGGIO VARIATION ENGINE (ported from Godot Synth MusicTheme techniques) ---
+# Applies probabilistic octave displacement, neighbor tone ornamentation, and
+# rhythmic rests to the static arpeggio patterns, making them evolve over time.
+# Variation probability scales with tension_index for dramatic effect.
+# Techniques adapted from MusicTheme.generate_variation(): octave displacement,
+# neighbor tone ornamentation, and rhythmic displacement — but integrated into
+# the real-time procedural synthesis pipeline rather than pre-computed note arrays.
+var _arp_octave_shift: int = 0         # semitone offset from octave displacement (-12, 0, +12)
+var _arp_neighbor_shift: int = 0       # semitone offset from neighbor tone (-1, 0, +1)
+var _arp_rest_active: bool = false     # suppress arpeggio for this step (rhythmic rest)
+
 # --- 1a. Bar/Beat Quantum Transition Queue ---
 var _stem_transition_queue: Array[Dictionary] = []
 var _current_stem_set: int = 0  # 0=calm, 1=exploration, 2=tension, 3=combat, 4=climax
@@ -1543,6 +1554,29 @@ func set_tension_index(dti: float) -> void:
 # ==============================================================================
 # Internal Synthesis & DSP Buffer Render Loop
 # ==============================================================================
+
+## Advances the arpeggio step with algorithmic variation (ported from Godot Synth
+## MusicTheme variation techniques: octave displacement, neighbor tone ornamentation,
+## rhythmic displacement). Variation probability scales with tension_index so
+## calm exploration stays stable while combat/climax introduces dramatic leaps.
+func _advance_arp_step() -> void:
+	_music_arp_step = (_music_arp_step + 1) % 8
+	# Reset variation for the new step
+	_arp_octave_shift = 0
+	_arp_neighbor_shift = 0
+	_arp_rest_active = false
+	# Variation probability scales with tension (5% at calm → 25% at climax)
+	var variation_chance: float = lerpf(0.05, 0.25, tension_index)
+	# Octave displacement (±12 semitones) — dramatic melodic leaps
+	if randf() < variation_chance * 0.4:
+		_arp_octave_shift = 12 if randf() > 0.5 else -12
+	# Neighbor tone ornamentation (±1 semitone) — chromatic passing tones
+	if randf() < variation_chance * 0.3:
+		_arp_neighbor_shift = 1 if randf() > 0.5 else -1
+	# Rhythmic rest — skip this step for syncopated spacing
+	if randf() < variation_chance * 0.2:
+		_arp_rest_active = true
+
 func _update_dynamic_music_timers(delta: float) -> void:
 	var sec_per_beat: float = 60.0 / maxf(30.0, music_bpm)
 	_music_beat_timer += delta
@@ -1567,7 +1601,7 @@ func _update_dynamic_music_timers(delta: float) -> void:
 	_music_arp_timer += delta
 	if _music_arp_timer >= jittered_step:
 		_music_arp_timer -= sec_per_16th
-		_music_arp_step = (_music_arp_step + 1) % 8
+		_advance_arp_step()
 
 func _update_heartbeat_rhythm(delta: float) -> void:
 	# Arrhythmia adds jitter to the cardiac cycle
@@ -1706,9 +1740,14 @@ func _fill_audio_buffer() -> void:
 		# LAYER F: CRYSTALLINE BIOLUMINESCENT HARP ARPEGGIOS (additive harmonics)
 		# Now uses 5-harmonic additive synthesis instead of single sine
 		# Menu theme: wider arpeggio envelope (slower attack, longer decay)
+		# Includes arpeggio variation engine (octave displacement + neighbor tones)
 		# ----------------------------------------------------------------------
-		if not steth and dti > 0.20:
+		if not steth and dti > 0.20 and not _arp_rest_active:
 			var arp_freq: float = _apply_drift(arp_freqs[_music_arp_step])
+			# Apply arpeggio variation: octave displacement + neighbor tone ornamentation
+			var arp_semitone_shift: int = _arp_octave_shift + _arp_neighbor_shift
+			if arp_semitone_shift != 0:
+				arp_freq *= pow(2.0, float(arp_semitone_shift) / 12.0)
 			_music_phase_arp += TWO_PI * arp_freq * dt
 			if _music_phase_arp > TWO_PI: _music_phase_arp -= TWO_PI
 			var arp_env: float = exp(-_music_arp_timer * 16.0)

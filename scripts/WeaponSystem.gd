@@ -109,6 +109,13 @@ var current_muzzle_toggle: bool = false
 # Beam visual node (lazily created, reused across ticks)
 var _beam_visual: MeshInstance3D
 
+# --- Projectile Object Pool (ported from All Projectiles inactive_projectiles_queue) ---
+# Recycles BioPlasmaProjectile instances instead of instantiate/queue_free on
+# every shot. Disruptor fires every 0.15s, so pooling avoids heavy node churn.
+var _projectile_pool: Array[BioPlasmaProjectile] = []
+@export_group("Projectile Pool")
+@export var projectile_pool_max_size: int = 64 ## Max recycled projectiles kept idle
+
 var lock_state: LockState = LockState.NONE
 var current_target: Node3D = null
 var lock_timer: float = 0.0
@@ -283,9 +290,7 @@ func fire_primary() -> bool:
 	var muzzle := muzzle_left if (current_muzzle_toggle and muzzle_left) else (muzzle_right if muzzle_right else self)
 	current_muzzle_toggle = not current_muzzle_toggle
 
-	var proj := _create_bio_plasma_projectile()
-	if is_inside_tree() and get_tree() and get_tree().root:
-		get_tree().root.add_child(proj)
+	var proj := _acquire_bio_plasma_projectile()
 
 	var fire_transform := muzzle.global_transform
 	proj.global_transform = fire_transform
@@ -321,26 +326,34 @@ func fire_plasma_missiles() -> bool:
 	var muzzle := muzzle_left if (current_muzzle_toggle and muzzle_left) else (muzzle_right if muzzle_right else self)
 	current_muzzle_toggle = not current_muzzle_toggle
 
-	var proj := _create_bio_plasma_projectile()
-	if is_inside_tree() and get_tree() and get_tree().root:
-		get_tree().root.add_child(proj)
+	var proj := _acquire_bio_plasma_projectile()
 
 	var fire_transform := muzzle.global_transform
 	proj.global_transform = fire_transform
 
-	# Homing Vector towards locked target if locked
+	# Initial aim bias towards locked target (legacy one-shot lerp), plus ongoing
+	# proportional homing via setup_homing() — the missile now tracks the target
+	# every frame with a clamped turn rate, ported from All Projectiles seek_target.
 	var dir := -fire_transform.basis.z.normalized()
+	var homing_target: Node3D = null
+	var homing_turn_rate: float = 0.0
 	if lock_state == LockState.LOCKED and is_instance_valid(current_target):
 		var target_dir := (current_target.global_position - muzzle.global_position).normalized()
 		dir = dir.lerp(target_dir, 0.75).normalized()
+		homing_target = current_target
+		homing_turn_rate = 90.0 # deg/s — tight locked-on tracking
 	elif lock_state == LockState.ACQUIRING and is_instance_valid(current_target):
 		var target_dir := (current_target.global_position - muzzle.global_position).normalized()
 		dir = dir.lerp(target_dir, 0.35).normalized()
+		homing_target = current_target
+		homing_turn_rate = 35.0 # deg/s — looser tracking while still acquiring
 
 	proj.setup(dir, missile_speed, missile_damage, missile_lifetime)
 	# Visual: orange-red glowing missile, larger than disruptor bolt
 	proj.setup_visuals(Color(1.0, 0.4, 0.1, 1.0), 0.5, true)
 	proj.damage_type = BioPlasmaProjectile.DamageType.THERMAL
+	# Enable ongoing homing toward the locked target (true proportional navigation)
+	proj.setup_homing(homing_target, homing_turn_rate)
 
 	# Muzzle flash VFX — bigger for missiles
 	CombatVFX.spawn_muzzle_flash(muzzle.global_position, dir, Color(1.0, 0.4, 0.1, 1.0))
@@ -705,8 +718,34 @@ func _play_ui_click() -> void:
 	if ml is SceneTree and ml.root and ml.root.has_node("BioAudioSynth"):
 		ml.root.get_node("BioAudioSynth").play_ui_click(true)
 
-func _create_bio_plasma_projectile() -> Area3D:
-	return BioPlasmaProjectileClass.new()
+## Acquires a BioPlasmaProjectile from the object pool, or creates a new one if
+## the pool is empty. Pooled instances are reactivated via activate() instead of
+## being re-instantiated, mirroring All Projectiles' inactive_projectiles_queue.
+func _acquire_bio_plasma_projectile() -> BioPlasmaProjectile:
+	var proj: BioPlasmaProjectile = null
+	if _projectile_pool.size() > 0:
+		proj = _projectile_pool.pop_back()
+	if proj == null or not is_instance_valid(proj):
+		proj = BioPlasmaProjectileClass.new()
+		proj.is_pooled = true
+		if not proj.projectile_deactivated.is_connected(_on_projectile_deactivated):
+			proj.projectile_deactivated.connect(_on_projectile_deactivated)
+		if is_inside_tree() and get_tree() and get_tree().root:
+			get_tree().root.add_child(proj)
+	proj.activate()
+	return proj
+
+## Returns a deactivated projectile to the pool for reuse. Caps the pool at
+## projectile_pool_max_size; excess instances are freed.
+func _on_projectile_deactivated(proj: BioPlasmaProjectile) -> void:
+	if not is_instance_valid(proj):
+		return
+	if _projectile_pool.size() >= projectile_pool_max_size:
+		proj.queue_free()
+		return
+	if _projectile_pool.has(proj):
+		return
+	_projectile_pool.append(proj)
 
 func _create_spore_cloud_area() -> Area3D:
 	return BioSporeCloudClass.new()

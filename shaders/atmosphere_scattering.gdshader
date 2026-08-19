@@ -1,201 +1,153 @@
-shader_type spatial;
-render_mode cull_disabled, depth_draw_never, blend_add, unshaded;
-
 // ============================================================================
-// BIOGENESIS-X — ATMOSPHERIC SCATTERING SHELL SHADER
-// AAA+ Rayleigh + Mie Scattering for Planetary Descent Visuals
+// BIO-GENESIS-X: Physical Atmosphere Scattering Shader
 // ============================================================================
-// Applied to a large sphere mesh surrounding the planet (radius =
-// planet_radius + atmosphere_height). Renders the 4-layer atmospheric
-// descent shell with:
-//   1. Rayleigh scattering approximation (blue sky by day, orange at sunset)
-//   2. Mie scattering approximation (horizon haze, forward sun glow)
-//   3. Sunset / sunrise color shifts driven by sun elevation angle
-//   4. Day / night side transition (smooth terminator)
-//   5. View-ray + sun-ray intersection scattering integral (numerical)
-//   6. Per-archetype tint & thickness modulation
+// Sean O'Neil's Rayleigh + Mie single-scattering technique (GPU Gems 2, 2004).
+// Adapted from the Procedural Planet Chunked LOD asset for Godot 4.7.1.
 //
-// All distances are normalized by atmosphere_height so the visual result is
-// independent of the absolute planet scale (km vs m vs game units).
+// Renders a transparent sphere around the planet with physically-based
+// atmospheric scattering. Superior to the simple Fresnel limb glow in the
+// procedural_planet.gdshader because it models:
+//   - Rayleigh scattering (wavelength-dependent — blue sky, red sunset)
+//   - Mie scattering (forward-peaked — haze, sun glow)
+//   - Optical depth via Chapman function approximation
+//   - Ray marching through the atmosphere volume
+//
+// Usage: Apply to a sphere mesh slightly larger than the planet.
+//        Set inner_radius = planet radius, outer_radius = planet + atmosphere.
+//        Update camera_pos, sun_direction, camera_height each frame.
 // ============================================================================
 
-group_uniforms Geometry;
-uniform vec3 sun_direction = vec3(0.0, 1.0, 0.0);
-uniform float planet_radius = 1000.0;
-uniform float atmosphere_height = 80.0;
+shader_type spatial;
+render_mode blend_mix, unshaded, depth_draw_never, cull_front;
 
-group_uniforms Scattering;
-// Per-channel Rayleigh scattering coefficients (normalized units).
-uniform vec3 rayleigh_coeff = vec3(0.018, 0.042, 0.10);
-// Mie (aerosol) scattering coefficient (normalized units).
-uniform float mie_coeff : hint_range(0.0, 0.2, 0.001) = 0.012;
-// Henyey-Greenstein asymmetry parameter (-1..1). Forward scattering > 0.
-uniform float mie_g : hint_range(-0.9, 0.9, 0.01) = 0.76;
-// Density falloff scale height as a fraction of atmosphere_height.
-uniform float scale_height_frac : hint_range(0.05, 0.5, 0.01) = 0.25;
+// --- Scattering parameters (tune in inspector for visual quality) ---
+group_uniforms scattering;
+uniform float kr : hint_range(0.0, 0.01, 0.0001) = 0.0035;          // Rayleigh coefficient
+uniform float km : hint_range(0.0, 0.01, 0.0001) = 0.001;           // Mie coefficient
+uniform float sun_intensity : hint_range(0.0, 50.0, 0.5) = 20.0;    // Sun brightness
+uniform float g : hint_range(-1.0, 0.0, 0.01) = -0.95;              // Mie phase asymmetry (negative = forward)
+uniform float scale_depth : hint_range(0.0, 1.0, 0.01) = 0.25;      // Altitude fraction of average density
+uniform int num_samples : hint_range(1, 8, 1) = 4;                  // Ray march steps (more = better but slower)
+uniform float wavelength_r : hint_range(0.3, 1.0, 0.001) = 0.650;   // Red wavelength (micrometers)
+uniform float wavelength_g : hint_range(0.3, 1.0, 0.001) = 0.570;   // Green wavelength (micrometers)
+uniform float wavelength_b : hint_range(0.3, 1.0, 0.001) = 0.475;   // Blue wavelength (micrometers)
 
-group_uniforms Colors;
-uniform vec4 sky_color_day : source_color = vec4(0.40, 0.62, 1.00, 1.0);
-uniform vec4 sky_color_sunset : source_color = vec4(1.00, 0.45, 0.20, 1.0);
-uniform vec4 sky_color_night : source_color = vec4(0.02, 0.03, 0.08, 1.0);
-uniform vec4 archetype_tint : source_color = vec4(1.0, 1.0, 1.0, 1.0);
+// --- Per-archetype atmosphere color tint (0: none, 1: molten, etc.) ---
+uniform int atmosphere_archetype : hint_range(0, 7) = 3;
+uniform vec3 atmosphere_tint : source_color = vec3(0.25, 0.65, 1.0); // Custom tint override
+uniform float tint_strength : hint_range(0.0, 1.0, 0.05) = 0.3;     // How much archetype tint affects scattering
 
-group_uniforms Camera;
-uniform vec3 camera_position = vec3(0.0, 0.0, 0.0);
-uniform float time = 0.0;
+// --- Managed by ProceduralPlanet each frame ---
+group_uniforms runtime;
+uniform vec3 camera_pos;          // Camera position in planet-local space
+uniform vec3 sun_direction;       // Normalized direction toward the sun
+uniform float camera_height;      // Distance from camera to planet center
+uniform float inner_radius;       // Planet surface radius (meters)
+uniform float outer_radius;       // Atmosphere edge radius (meters)
+uniform float atm_scale;          // 1.0 / (outer_radius - inner_radius)
 
-group_uniforms Quality;
-uniform int sample_count : hint_range(4, 32, 1) = 8;
-uniform int light_sample_count : hint_range(1, 8, 1) = 2;
-uniform float quality_scale : hint_range(0.25, 1.0, 0.05) = 1.0;
-uniform float intensity : hint_range(0.0, 8.0, 0.05) = 1.6;
+// Pass vertex position to fragment shader
+varying vec3 vertex_pos;
 
-varying vec3 v_world_pos;
-
-// ----------------------------------------------------------------------------
-// Ray-sphere intersection. Returns (near, far) distances along rd, or
-// vec2(-1.0) if no intersection. ro/rd in world space.
-// ----------------------------------------------------------------------------
-vec2 ray_sphere(vec3 ro, vec3 rd, float r) {
-	vec3 oc = ro;
-	float b = dot(oc, rd);
-	float c = dot(oc, oc) - r * r;
-	float h = b * b - c;
-	if (h < 0.0) {
-		return vec2(-1.0);
-	}
-	h = sqrt(h);
-	return vec2(-b - h, -b + h);
+// Polynomial approximation of the Chapman function for optical depth.
+// From O'Neil's original implementation.
+float scale_func(float cos_angle, float sd) {
+	float x = 1.0 - cos_angle;
+	return sd * exp(-0.00287 + x * (0.459 + x * (3.83 + x * (-6.80 + x * 5.25))));
 }
 
-// ----------------------------------------------------------------------------
-// Atmospheric density at a given world position, based on altitude above the
-// planet surface. Exponential falloff with scale height H.
-// ----------------------------------------------------------------------------
-float atmosphere_density(vec3 pos, float r_planet, float H) {
-	float altitude = length(pos) - r_planet;
-	if (altitude < 0.0) {
-		return 0.0;
+// Per-archetype wavelength adjustment for exotic atmospheres.
+vec3 archetype_wavelengths(int archetype) {
+	if (archetype == 0) {
+		// MOLTEN: thick sulfuric atmosphere — reddish-brown scattering
+		return mix(vec3(wavelength_r, wavelength_g, wavelength_b), vec3(0.70, 0.45, 0.30), tint_strength);
+	} else if (archetype == 4) {
+		// ICE WORLD: thin cryogenic atmosphere — pale blue
+		return mix(vec3(wavelength_r, wavelength_g, wavelength_b), vec3(0.50, 0.60, 0.75), tint_strength);
+	} else if (archetype == 5) {
+		// JOVIAN GAS GIANT: deep ammonia atmosphere — amber/gold
+		return mix(vec3(wavelength_r, wavelength_g, wavelength_b), vec3(0.65, 0.55, 0.40), tint_strength);
+	} else if (archetype == 6) {
+		// ICE GIANT: methane atmosphere — deep blue/cyan
+		return mix(vec3(wavelength_r, wavelength_g, wavelength_b), vec3(0.48, 0.55, 0.70), tint_strength);
+	} else if (archetype == 7) {
+		// RADIOTROPHIC BIO: dense organic atmosphere — greenish
+		return mix(vec3(wavelength_r, wavelength_g, wavelength_b), vec3(0.52, 0.58, 0.50), tint_strength);
 	}
-	return exp(-altitude / max(H, 0.0001));
+	// Default: Terran-like or barren — use standard wavelengths with optional tint
+	return mix(vec3(wavelength_r, wavelength_g, wavelength_b), atmosphere_tint, tint_strength);
 }
 
 void vertex() {
-	v_world_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+	vertex_pos = VERTEX;
 }
 
 void fragment() {
-	vec3 sun_dir = normalize(sun_direction);
-	vec3 ro = camera_position;
-	vec3 rd = normalize(v_world_pos - camera_position);
+	// Ray from camera to this pixel's position on the atmosphere sphere
+	vec3 pos = vertex_pos;
+	vec3 ray = pos - camera_pos;
+	float far_dist = length(ray);
+	ray /= far_dist;
 
-	float r_atmo = planet_radius + atmosphere_height;
-	float H = max(atmosphere_height * scale_height_frac, 0.001);
+	// Precompute scattering constants with per-archetype wavelength adjustment
+	vec3 wl = archetype_wavelengths(atmosphere_archetype);
+	vec3 inv_wavelength4 = 1.0 / (wl * wl * wl * wl);
+	float kr_sun = kr * sun_intensity;
+	float km_sun = km * sun_intensity;
+	float kr_4pi = kr * 4.0 * PI;
+	float km_4pi = km * 4.0 * PI;
+	float scale_over_depth = atm_scale / scale_depth;
 
-	// --- View ray intersection with the atmosphere shell ---
-	vec2 atmo_hit = ray_sphere(ro, rd, r_atmo);
-	if (atmo_hit.x < 0.0 && atmo_hit.y < 0.0) {
-		discard;
-	}
-	float t_start = max(atmo_hit.x, 0.0);
-	float t_end = max(atmo_hit.y, 0.0);
-	if (t_end <= t_start) {
-		discard;
-	}
+	// Find ray-atmosphere intersection. When camera is outside, near_dist > 0
+	// and the ray starts at the atmosphere boundary. When camera is inside,
+	// near_dist <= 0 so we clamp to 0 and start at the camera position.
+	float B = 2.0 * dot(camera_pos, ray);
+	float C = camera_height * camera_height - outer_radius * outer_radius;
+	float det = max(0.0, B * B - 4.0 * C);
+	float near_dist = max(0.0, 0.5 * (-B - sqrt(det)));
+	vec3 start_pos = camera_pos + ray * near_dist;
+	far_dist -= near_dist;
 
-	// --- Clip integration at the solid planet surface (opaque) ---
-	vec2 planet_hit = ray_sphere(ro, rd, planet_radius);
-	if (planet_hit.x > 0.0) {
-		t_end = min(t_end, planet_hit.x);
-	}
-	if (t_end <= t_start) {
-		discard;
-	}
+	float start_height = length(start_pos);
+	float start_angle = dot(ray, start_pos) / max(start_height, 0.001);
+	float start_depth = exp(scale_over_depth * (inner_radius - start_height));
+	float start_offset = start_depth * scale_func(start_angle, scale_depth);
 
-	// --- Phase functions ---
-	float cos_theta = dot(rd, sun_dir);
-	float rayleigh_phase = 0.75 * (1.0 + cos_theta * cos_theta);
-	float mie_phase_denom = 1.0 + mie_g * mie_g - 2.0 * mie_g * cos_theta;
-	float mie_phase = (1.0 - mie_g * mie_g) /
-		(4.0 * 3.14159265 * pow(max(mie_phase_denom, 0.0001), 1.5));
+	// Ray march through the atmosphere
+	float sample_length = far_dist / float(num_samples);
+	float scaled_length = sample_length * atm_scale;
+	vec3 sample_ray = ray * sample_length;
+	vec3 sample_point = start_pos + sample_ray * 0.5;
 
-	// --- Numerical scattering integral along the view ray ---
-	int actual_samples = max(4, int(float(sample_count) * quality_scale));
-	int actual_light_samples = max(1, int(float(light_sample_count) * quality_scale));
-	int samples = max(actual_samples, 4);
-	float seg_len = (t_end - t_start) / float(samples);
-	vec3 rayleigh_accum = vec3(0.0);
-	vec3 mie_accum = vec3(0.0);
-	float od_ray = 0.0;
-	float od_mie = 0.0;
-
-	for (int i = 0; i < 32; i++) {
-		if (i >= samples) {
-			break;
-		}
-		float t = t_start + seg_len * (float(i) + 0.5);
-		vec3 p = ro + rd * t;
-		float density = atmosphere_density(p, planet_radius, H);
-		if (density <= 0.0) {
-			continue;
-		}
-		od_ray += density * seg_len;
-		od_mie += density * seg_len;
-
-		// --- Light ray optical depth from p toward the sun ---
-		vec2 light_atmo = ray_sphere(p, sun_dir, r_atmo);
-		float light_dist = max(light_atmo.y, 0.0);
-		vec2 light_planet = ray_sphere(p, sun_dir, planet_radius);
-		bool in_shadow = (light_planet.x > 0.0);
-		float light_od_ray = 0.0;
-		float light_od_mie = 0.0;
-		if (!in_shadow && light_dist > 0.0) {
-			int lsamples = max(actual_light_samples, 1);
-			float lseg = light_dist / float(lsamples);
-			for (int j = 0; j < 8; j++) {
-				if (j >= lsamples) {
-					break;
-				}
-				float lt = lseg * (float(j) + 0.5);
-				vec3 lp = p + sun_dir * lt;
-				float ld = atmosphere_density(lp, planet_radius, H);
-				light_od_ray += ld * lseg;
-				light_od_mie += ld * lseg;
-			}
-		}
-
-		vec3 tau = rayleigh_coeff * (od_ray + light_od_ray) +
-			vec3(mie_coeff) * (od_mie + light_od_mie);
-		vec3 attn = exp(-tau);
-
-		rayleigh_accum += density * seg_len * attn;
-		mie_accum += density * seg_len * attn;
+	vec3 front_color = vec3(0.0);
+	for (int i = 0; i < num_samples; i++) {
+		float h = length(sample_point);
+		float d = exp(scale_over_depth * (inner_radius - h));
+		float light_angle = dot(sun_direction, sample_point) / max(h, 0.001);
+		float camera_angle = dot(ray, sample_point) / max(h, 0.001);
+		float scatter = start_offset + d * (scale_func(light_angle, scale_depth) - scale_func(camera_angle, scale_depth));
+		vec3 attenuate = exp(-scatter * (inv_wavelength4 * kr_4pi + km_4pi));
+		front_color += attenuate * (d * scaled_length);
+		sample_point += sample_ray;
 	}
 
-	// --- Composite scattered radiance ---
-	vec3 scatter = rayleigh_accum * rayleigh_coeff * rayleigh_phase +
-		mie_accum * mie_coeff * mie_phase;
+	// Rayleigh and Mie colors
+	vec3 rayleigh_color = front_color * (inv_wavelength4 * kr_sun);
+	vec3 mie_color = front_color * km_sun;
 
-	// --- Sun elevation drives day/sunset/night color blend ---
-	float sun_up = clamp(sun_dir.y, -1.0, 1.0);
-	// Sunset band: strongest when sun is near the horizon.
-	float sunset_factor = 1.0 - clamp(abs(sun_up) * 2.5, 0.0, 1.0);
-	float day_factor = clamp(sun_up * 1.5 + 0.5, 0.0, 1.0);
-	float night_factor = clamp(-sun_up * 1.5 + 0.5, 0.0, 1.0);
+	// Phase functions
+	float cos_angle = dot(sun_direction, normalize(camera_pos - pos));
 
-	vec3 sky_tint = mix(sky_color_night.rgb, sky_color_day.rgb, day_factor);
-	sky_tint = mix(sky_tint, sky_color_sunset.rgb, sunset_factor);
+	// Rayleigh phase function: 3/4 * (1 + cos²θ)
+	float rayleigh_phase = 0.75 * (1.0 + cos_angle * cos_angle);
 
-	// --- Limb / horizon haze boost (Mie forward glow toward sun) ---
-	float limb = pow(clamp(1.0 - abs(dot(rd, normalize(v_world_pos))), 0.0, 1.0), 2.0);
-	vec3 sun_glow = sky_color_sunset.rgb * mie_phase * mie_accum * mie_coeff * 4.0;
+	// Henyey-Greenstein Mie phase function
+	float g2 = g * g;
+	float mie_phase = 1.5 * ((1.0 - g2) / (2.0 + g2))
+		* (1.0 + cos_angle * cos_angle)
+		/ pow(max(1.0 + g2 - 2.0 * g * cos_angle, 0.001), 1.5);
 
-	vec3 col = (scatter * sky_tint + sun_glow) * archetype_tint.rgb * intensity;
-	col += sky_tint * limb * archetype_tint.rgb * 0.15 * night_factor;
-
-	// Alpha falls off with scattering strength so empty space stays clear.
-	float alpha = clamp((length(scatter) * 6.0 + limb * 0.4) * intensity, 0.0, 1.0);
-
-	ALBEDO = col;
-	ALPHA = alpha;
+	ALBEDO = rayleigh_phase * rayleigh_color + mie_phase * mie_color;
+	// Alpha from scattering intensity — strong scattering hides stars behind the sky
+	ALPHA = clamp(max(ALBEDO.r, max(ALBEDO.g, ALBEDO.b)) * 5.0, 0.0, 1.0);
 }

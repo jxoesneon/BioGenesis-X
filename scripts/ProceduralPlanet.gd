@@ -12,6 +12,7 @@ class_name ProceduralPlanet
 extends Node3D
 
 const PlanetShaderResource = preload("res://shaders/procedural_planet.gdshader")
+const AtmosphereShaderResource = preload("res://shaders/atmosphere_scattering.gdshader")
 
 @export var planet_name: String = "Terran Prime"
 @export var archetype: int = 3 # 3: Terran Oceanic
@@ -64,6 +65,11 @@ var planet_mesh_instance: MeshInstance3D
 var ring_mesh_instance: MeshInstance3D
 var orbit_line_instance: MeshInstance3D
 var moons_container: Node3D
+# Physical atmosphere scattering mesh (Sean O'Neil Rayleigh + Mie).
+var _atmosphere_mesh_instance: MeshInstance3D = null
+var _atmosphere_material: ShaderMaterial = null
+# Sun direction for atmosphere scattering (updated by the star system manager).
+var _sun_direction: Vector3 = Vector3(0.0, 0.0, 1.0)
 
 var elapsed_simulation_seconds: float = 0.0
 
@@ -87,6 +93,7 @@ func _ready() -> void:
 
 	_setup_hierarchical_nodes()
 	_generate_planet_body()
+	_generate_atmosphere_scattering()
 	if has_rings:
 		_generate_planetary_rings()
 	_generate_orbit_trajectory_line()
@@ -134,6 +141,9 @@ func _process(delta: float) -> void:
 		if _lod_update_counter >= _LOD_UPDATE_INTERVAL:
 			_lod_update_counter = 0
 			_update_lod()
+
+	# 5. Update atmosphere scattering uniforms (camera position + sun direction).
+	_update_atmosphere_uniforms()
 
 ## Solves Kepler's Equation M = E - e*sin(E) for Eccentric Anomaly using Newton-Raphson iteration.
 static func solve_kepler_eccentric_anomaly(mean_anomaly: float, ecc: float) -> float:
@@ -279,6 +289,101 @@ func _generate_planet_body() -> void:
 	collision_shape.shape = sphere_shape
 	collision_body.add_child(collision_shape)
 	body_tilt_node.add_child(collision_body)
+
+## Generates a physical atmosphere scattering sphere using Sean O'Neil's
+## Rayleigh + Mie technique. Superior to the simple Fresnel limb glow in the
+## planet shader because it models wavelength-dependent scattering, optical
+## depth, and ray marching through the atmosphere volume.
+## Ported from the Procedural Planet Chunked LOD asset's atmosphere.gdshader.
+func _generate_atmosphere_scattering() -> void:
+	# Atmosphere height: scale by archetype (gas giants have huge atmospheres).
+	var atm_height_m: float = radius_m * 0.15
+	if archetype == 5 or archetype == 6: # Gas giants
+		atm_height_m = radius_m * 0.5
+	elif archetype == 1: # Barren — negligible atmosphere
+		atm_height_m = radius_m * 0.02
+	elif archetype == 0: # Molten — thick toxic atmosphere
+		atm_height_m = radius_m * 0.25
+
+	var outer_radius_m: float = radius_m + atm_height_m
+
+	_atmosphere_mesh_instance = MeshInstance3D.new()
+	_atmosphere_mesh_instance.name = "AtmosphereScattering"
+	var sphere := SphereMesh.new()
+	sphere.radius = outer_radius_m
+	sphere.height = outer_radius_m * 2.0
+	sphere.radial_segments = 64
+	sphere.rings = 32
+	_atmosphere_mesh_instance.mesh = sphere
+	# Disable Godot's built-in culling — atmosphere should always render when
+	# the planet is visible (the sphere is much larger than the planet body).
+	_atmosphere_mesh_instance.visibility_range_end = _VISIBILITY_RANGE_END_M
+	_atmosphere_mesh_instance.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF
+
+	_atmosphere_material = ShaderMaterial.new()
+	_atmosphere_material.shader = AtmosphereShaderResource
+	_atmosphere_material.set_shader_parameter("inner_radius", radius_m)
+	_atmosphere_material.set_shader_parameter("outer_radius", outer_radius_m)
+	_atmosphere_material.set_shader_parameter("atm_scale", 1.0 / atm_height_m)
+	_atmosphere_material.set_shader_parameter("sun_direction", _sun_direction)
+	_atmosphere_material.set_shader_parameter("atmosphere_archetype", archetype)
+	_atmosphere_material.set_shader_parameter("atmosphere_tint", atmosphere_color)
+	_atmosphere_material.set_shader_parameter("camera_pos", Vector3.ZERO)
+	_atmosphere_material.set_shader_parameter("camera_height", radius_m * 5.0)
+
+	# Per-archetype scattering parameters
+	if archetype == 1: # Barren — almost no atmosphere
+		_atmosphere_material.set_shader_parameter("kr", 0.0005)
+		_atmosphere_material.set_shader_parameter("km", 0.0002)
+		_atmosphere_material.set_shader_parameter("sun_intensity", 5.0)
+		_atmosphere_material.set_shader_parameter("tint_strength", 0.1)
+	elif archetype == 5: # Jovian — thick amber atmosphere
+		_atmosphere_material.set_shader_parameter("kr", 0.006)
+		_atmosphere_material.set_shader_parameter("km", 0.002)
+		_atmosphere_material.set_shader_parameter("sun_intensity", 25.0)
+		_atmosphere_material.set_shader_parameter("tint_strength", 0.5)
+	elif archetype == 6: # Ice Giant — methane blue
+		_atmosphere_material.set_shader_parameter("kr", 0.005)
+		_atmosphere_material.set_shader_parameter("km", 0.0015)
+		_atmosphere_material.set_shader_parameter("sun_intensity", 22.0)
+		_atmosphere_material.set_shader_parameter("tint_strength", 0.5)
+	elif archetype == 7: # Radiotrophic — greenish organic
+		_atmosphere_material.set_shader_parameter("kr", 0.005)
+		_atmosphere_material.set_shader_parameter("km", 0.002)
+		_atmosphere_material.set_shader_parameter("sun_intensity", 18.0)
+		_atmosphere_material.set_shader_parameter("tint_strength", 0.4)
+
+	_atmosphere_mesh_instance.material_override = _atmosphere_material
+	body_tilt_node.add_child(_atmosphere_mesh_instance)
+
+## Updates the atmosphere scattering uniforms each frame. Call from _process
+## after computing the planet position. The camera position is transformed to
+## planet-local space for the shader.
+func _update_atmosphere_uniforms() -> void:
+	if _atmosphere_material == null or not is_instance_valid(_atmosphere_mesh_instance):
+		return
+	var viewport: Viewport = get_viewport()
+	if viewport == null:
+		return
+	var cam: Camera3D = viewport.get_camera_3d()
+	if cam == null:
+		return
+	# Camera position in planet-local space (relative to planet center).
+	var cam_local: Vector3 = to_local(cam.global_position)
+	_atmosphere_material.set_shader_parameter("camera_pos", cam_local)
+	_atmosphere_material.set_shader_parameter("camera_height", cam_local.length())
+	_atmosphere_material.set_shader_parameter("sun_direction", _sun_direction)
+
+## Sets the sun direction for atmosphere scattering. Called by the star system
+## manager or any script that knows the star's position.
+func set_sun_direction(direction: Vector3) -> void:
+	_sun_direction = direction.normalized()
+	if _atmosphere_material != null:
+		_atmosphere_material.set_shader_parameter("sun_direction", _sun_direction)
+
+## Returns the atmosphere scattering mesh instance (or null if not created).
+func get_atmosphere_mesh() -> MeshInstance3D:
+	return _atmosphere_mesh_instance
 
 ## Generates 3D procedural equatorial planetary ring disk.
 func _generate_planetary_rings() -> void:
