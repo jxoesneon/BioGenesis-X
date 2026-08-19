@@ -88,7 +88,7 @@ func _create_planes() -> void:
 		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 		mat.no_depth_test = true  # Always visible regardless of depth
-		mat.cull_mode = 0  # CULL_MODE_DISABLED
+		mat.cull_mode = BaseMaterial3D.CULL_MODE_DISABLED
 		plane.material_override = mat
 
 		add_child(plane)
@@ -155,8 +155,8 @@ func _set_overlay_visible(vis: bool) -> void:
 		if plane and is_instance_valid(plane):
 			plane.visible = vis and _channel_visible.get(channel, true)
 
-func set_channel_visible(channel: int, visible: bool) -> void:
-	_channel_visible[channel] = visible
+func set_channel_visible(channel: int, is_visible: bool) -> void:
+	_channel_visible[channel] = is_visible
 	if _planes.has(channel):
 		var plane: MeshInstance3D = _planes[channel]
 		if plane and is_instance_valid(plane):

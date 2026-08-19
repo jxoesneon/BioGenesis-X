@@ -472,7 +472,7 @@ func _mount_completed_threaded_chunks() -> void:
 	_threaded_mutex.unlock()
 
 	for result in results:
-		var key: String = result["key"]
+		var _key: String = result["key"]
 		var chunk_type: String = result["type"]
 
 		if chunk_type == "far":
@@ -719,7 +719,7 @@ func _spawn_enemy_drone(parent: Node3D, local_pos: Vector3, aggression: float, r
 	drone.position = local_pos
 	parent.add_child(drone)
 
-func _spawn_anomaly_beacon(parent: Node3D, local_pos: Vector3, intensity: float, rng: RandomNumberGenerator) -> void:
+func _spawn_anomaly_beacon(parent: Node3D, local_pos: Vector3, intensity: float, _rng: RandomNumberGenerator) -> void:
 	var beacon := MeshInstance3D.new()
 	beacon.name = "AnomalyBeacon"
 	beacon.add_to_group("celestial_bodies")
@@ -739,7 +739,7 @@ func _spawn_anomaly_beacon(parent: Node3D, local_pos: Vector3, intensity: float,
 	beacon.position = local_pos
 	parent.add_child(beacon)
 
-func _spawn_hazard_zone(parent: Node3D, local_pos: Vector3, intensity: float, rng: RandomNumberGenerator) -> void:
+func _spawn_hazard_zone(parent: Node3D, local_pos: Vector3, intensity: float, _rng: RandomNumberGenerator) -> void:
 	var zone := Area3D.new()
 	zone.name = "HazardZone"
 	zone.add_to_group("celestial_bodies")

@@ -381,7 +381,7 @@ func _apply_fov(fov: float) -> void:
 		if cam and cam is Camera3D:
 			cam.fov = clampf(fov, 60.0, 110.0)
 
-func _apply_texture_quality(quality: int) -> void:
+func _apply_texture_quality(_quality: int) -> void:
 	# 0=Low (256 max), 1=Medium (512), 2=High (1024), 3=Ultra (2048)
 	# Texture quality is read by streaming systems at runtime via get_setting()
 	pass

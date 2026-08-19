@@ -81,7 +81,6 @@ func _detect_hardware() -> void:
 	is_apple_silicon = (os_name == "macOS" and _is_apple_silicon())
 
 	# Memory
-	var mem_bytes: int = OS.get_static_memory_usage()
 	# OS.get_static_memory_usage() returns current usage, not total.
 	# Use a heuristic based on platform.
 	total_memory_gb = _detect_total_memory()
@@ -354,7 +353,6 @@ func _process(delta: float) -> void:
 	# Target: 60 FPS = 16.67ms
 	# If consistently above 25ms, reduce resolution scale
 	# If consistently below 14ms, increase resolution scale
-	var target_ms: float = 16.67
 	var upper_threshold: float = 25.0
 	var lower_threshold: float = 14.0
 
@@ -377,7 +375,7 @@ func _apply_resolution_scale() -> void:
 	# Use Godot's stretch scale for resolution scaling
 	var tree: SceneTree = get_tree()
 	if tree and tree.root:
-		tree.root.content_scale_scale = _current_resolution_scale
+		tree.root.content_scale_scale = Vector2(_current_resolution_scale, _current_resolution_scale)
 
 # ==============================================================================
 # Public API
