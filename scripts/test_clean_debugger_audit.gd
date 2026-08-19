@@ -1,6 +1,11 @@
 extends SceneTree
 
 func _init() -> void:
+	# Defer until after autoloads are registered so scripts that reference
+	# autoload singletons (CombatStats, BioAudioSynth, etc.) compile cleanly.
+	process_frame.connect(_run_audit)
+
+func _run_audit() -> void:
 	print("==================================================================")
 	print("BIO-GENESIS-X: GODOT DEBUGGER & SCRIPT RUNTIME AUDIT")
 	print("==================================================================")

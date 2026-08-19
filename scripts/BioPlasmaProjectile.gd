@@ -62,8 +62,9 @@ func _create_visuals() -> void:
 		mat.albedo_color = projectile_color
 		mat.emission_energy_multiplier = 3.0
 		mat.emission = projectile_color
-		mat.glow_on = true
-		mat.glow_blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+		# Godot 4: glow is handled globally via WorldEnvironment + StandardMaterial3D
+		# emission; the old Godot 3 "glow_on"/"glow_blend_mode" properties no longer
+		# exist on StandardMaterial3D and trigger remap warnings.
 		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 		mat.no_depth_test = true
 		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
