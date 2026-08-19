@@ -164,8 +164,31 @@ func _load_quest_state() -> void:
 	if data.is_empty():
 		print("[QuestManager] No persisted quest state found — starting fresh.")
 		return
+	# Pre-load all quest files from the save data so the persistence manager
+	# can find them in _id_to_context_node_map. Without this, quests that were
+	# saved but not auto-started will log "no definition found" warnings.
+	_preload_quest_files_from_save(data)
 	_global_bus.load_quest_data(data)
 	print("[QuestManager] Restored quest state from save (keys: %d)." % data.size())
+
+## Pre-loads quest files referenced in save data so the persistence manager
+## can find them in _id_to_context_node_map. Without this, quests that were
+## saved but not auto-started will log "no definition found" warnings.
+func _preload_quest_files_from_save(data: Dictionary) -> void:
+	if not is_instance_valid(_global_bus):
+		return
+	# The save stores file_id values that may differ from the current registry
+	# keys (e.g. "intro_quest" vs "first_symbiosis"). We need to ensure the quest
+	# graph is loaded for each file_id. start_quest_file will load the graph
+	# via _ensure_quest_loaded and the persistence manager will overwrite the
+	# quest state from the save data immediately after.
+	var instances: Array = data.get("instances", [])
+	for inst in instances:
+		var file_id: String = str(inst.get("file_id", ""))
+		if file_id.is_empty():
+			continue
+		if _global_bus.has_method("start_quest_file"):
+			_global_bus.start_quest_file(StringName(file_id))
 
 
 ## Collect quest save data from QuestWeaverGlobal and inject it into

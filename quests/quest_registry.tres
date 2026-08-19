@@ -5,6 +5,7 @@
 [resource]
 script = ExtResource("1_bxquest")
 quest_path_map = {
-&"first_symbiosis": "res://quests/intro_quest.tres"
+&"first_symbiosis": "res://quests/intro_quest.tres",
+&"intro_quest": "res://quests/intro_quest.tres"
 }
 metadata/_custom_type_script = "res://addons/quest_weaver/core/quest_registry.gd"
