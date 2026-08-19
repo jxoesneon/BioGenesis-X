@@ -193,7 +193,7 @@ func _build_requirements_list_ui():
 		row.add_child(index_lbl)
 
 		# 1. KEY FIELD (ID)
-		var key_edit = QWConstants.AutoCompleteLineEditScene.instantiate()
+		var key_edit = QWConstants.load_scene(QWConstants.AutoCompleteLineEditScenePath).instantiate()
 
 		if objective_resource.trigger_type == ObjectiveResource.TriggerType.ITEM_COLLECT:
 			QWEditorUtils.populate_item_completer(key_edit)

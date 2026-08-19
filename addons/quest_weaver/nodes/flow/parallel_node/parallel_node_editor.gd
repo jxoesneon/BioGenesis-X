@@ -54,7 +54,7 @@ func _rebuild_outputs_list():
 
 	for i in range(parallel_node.outputs.size()):
 		var output_info = parallel_node.outputs[i]
-		var entry: ParallelOutputEditorEntry = QWConstants.OutputEntryScene.instantiate()
+		var entry: ParallelOutputEditorEntry = QWConstants.load_scene(QWConstants.OutputEntryScenePath).instantiate()
 
 		entry.remove_requested.connect(_on_remove_output_pressed.bind(i))
 		entry.name_changed.connect(_on_output_name_changed.bind(i))

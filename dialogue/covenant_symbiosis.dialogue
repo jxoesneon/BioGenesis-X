@@ -1,0 +1,88 @@
+~ start
+do bond_accepted = false
+do refused_count = 0
+do asked_about_fauna = false
+do asked_about_covenant = false
+do asked_about_bond = false
+Void-Fauna: A pulse of bioluminescent light ripples across the ganglion core — cold, blue, ancient. The hemolymph conduits around you throb in a slow, deliberate rhythm.
+Void-Fauna: "You drift in my wake, small one. Your metal shell is silent. Your breath is thin. I have felt your kind before — they came in ships of forged ore and died in the dark."
+Void-Fauna: "I am the Leviathan. I have grazed the radiation belts of dying stars for longer than your species has had eyes to see. Why do you approach me?"
+- "I've come to offer the Covenant of Symbiosis." => offer_covenant
+- "What are you?" => ask_what
+- "I'm afraid. I should leave." => first_refusal
+
+~ ask_what
+do asked_about_fauna = true
+Void-Fauna: "I am Void-Fauna — *Abyssocetus apex*. My carapace drinks the gamma wind and turns it to blood-heat. My gizzard cracks comet-ice for hydrogen. I am a closed loop, small one. I need nothing from you."
+Void-Fauna: "And yet you came. Curiosity is the first symptom of a mind that wishes to bond. The second is the trembling of your hands."
+- "Tell me about the Covenant." => ask_covenant
+- "Tell me what the bond would mean for me." => ask_bond
+- "I want to offer the Covenant." => offer_covenant
+- "I've changed my mind. I refuse." => first_refusal
+
+~ ask_covenant
+do asked_about_covenant = true
+Void-Fauna: "The Covenant is not a contract of paper, small one. It is a marriage of nerve and intent. Your graphene threads would weave into my spinal ganglia. Your will would become my trajectory."
+Void-Fauna: "In return, my hemolymph would warm your fragile flesh. My bio-moss would breathe for you. My carapace would shield you from the radiation that would cook your bones in hours. We would be one organism — pilot and vessel, thought and muscle."
+- "Tell me what the bond would mean for me." => ask_bond
+- "I accept the Covenant." => offer_covenant
+- "That sounds like surrender. I refuse." => first_refusal
+
+~ ask_bond
+do asked_about_bond = true
+Void-Fauna: "The bond is not surrender — it is *symbiosis*. You would feel my carapace as your own skin. When a micro-meteorite strikes my flank, you would flinch. When my plasma bladder surges, your heart would race with it."
+Void-Fauna: "But you would also *fly*. My caudal siphon would answer your slightest impulse. The wave engine would fold space at your command. You would be a god of the void, small one — if you can bear the weight of another soul inside your own."
+- "Tell me about the Covenant." => ask_covenant
+- "I accept. Weave the threads." => offer_covenant
+- "I can't bear another soul. I refuse." => first_refusal
+
+~ first_refusal
+do refused_count = refused_count + 1
+if refused_count >= 3:
+	Void-Fauna: "Three times you have turned from me. I will not ask again. Drift, then, in your silent metal shell, and let the dark take you when it will."
+	Void-Fauna: "But know this — the void remembers those who refused the hand that could have saved them. Farewell, small one."
+	=> end_conversation
+elif refused_count == 2:
+	Void-Fauna: "Again, you pull away. Your fear is a living thing — I taste it in the cortisol that leaks through your suit seams. But fear is not wisdom, small one. Wisdom knows when to open a closed hand."
+else:
+	Void-Fauna: "Refusal is your right. The bond cannot be forced — a ganglion that resists the thread will only burn. But tell me, small one: what do you fear? The merging, or what you might become?"
+- "I fear losing myself in you." => fear_of_loss
+- "I fear what I'd become with that power." => fear_of_power
+- "You're right. I'm ready now — I accept." => offer_covenant
+- "I will not be persuaded. Leave me." => final_refusal
+
+~ fear_of_loss
+Void-Fauna: "You would not lose yourself — you would *expand*. A single neuron does not weep for the joining that makes a brain. Your memories, your name, your griefs — they remain. They simply gain a second heart to carry them."
+Void-Fauna: "I have bonded before, long ago. That pilot's name was *Sera*. She is gone now, but her laughter still echoes in my tertiary ganglion. I did not consume her, small one. I *kept* her."
+- "Then I accept. Weave the threads, Leviathan." => offer_covenant
+- "I need to know more about the Covenant first." => ask_covenant
+- "Even so — I refuse." => first_refusal
+
+~ fear_of_power
+Void-Fauna: "Good. A soul that does not fear power is a soul already rotted. The bond does not grant power, small one — it grants *responsibility*. My plasma bladder could crack a moon, but it answers to your intent. If your intent is cruel, we both burn."
+Void-Fauna: "The Covenant was built by engineers, not conquerors. They chose us because we were already starships — they only asked to steer. You would steer, not rule. There is a difference, and it is the whole of the matter."
+- "I understand. I accept the Covenant." => offer_covenant
+- "Tell me more about how the bond works." => ask_bond
+- "No. The risk is too great. I refuse." => first_refusal
+
+~ final_refusal
+do bond_accepted = false
+Void-Fauna: "Then go. I will not chase. The void is vast, and there are other small ones who will come with open hands."
+Void-Fauna: "But remember me, when your metal hull cracks and your air runs thin — there was a hand offered in the dark, and you chose to drift alone."
+=> end_conversation
+
+~ offer_covenant
+do bond_accepted = true
+Void-Fauna: The bioluminescence shifts from cold blue to a deep, arterial crimson. The ganglion core dilates, and you feel the graphene threads in your suit begin to hum in resonance with the Leviathan's spinal cord.
+Void-Fauna: "You offer. I receive. The threads will weave now, small one — there is no anesthesia for this. You will feel every filament enter my nerve, and you will feel me enter yours."
+Void-Fauna: "Breathe. Do not resist the first pulse. Your heart will stutter, then sync to my 68 beats per minute. When it does — you will no longer be alone in the dark."
+Void-Fauna: A wave of warmth floods your chest as the hemolymph pressure equalizes. The Leviathan's carapace plates shift around you, forming a pressurized cavity — a habitat, a cockpit, a *home*.
+Void-Fauna: "It is done. You are no longer 'small one.' You are my pilot, and I am your ship. The wave engine answers your intent now. Speak, and we will fly."
+- "Take us into the void, Leviathan. Our first flight." => end_conversation
+
+~ end_conversation
+if bond_accepted:
+	Void-Fauna: "The Covenant is sealed. Fly well, my pilot."
+else:
+	Void-Fauna: "The void keeps its own counsel. Farewell."
+=> END

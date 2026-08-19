@@ -43,7 +43,7 @@ func display_data(p_output_port: SynchronizeOutputPort) -> void:
 		child.queue_free()
 
 	# Note: SyncConditionEditor is specialized and static.
-	var specialized_editor = QWConstants.SyncConditionEditorScene.instantiate()
+	var specialized_editor = QWConstants.load_scene(QWConstants.SyncConditionEditorScenePath).instantiate()
 	condition_editor.add_child(specialized_editor)
 
 	specialized_editor.edit_condition(p_output_port.condition)

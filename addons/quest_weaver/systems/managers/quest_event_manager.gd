@@ -21,7 +21,7 @@ func _get_controller() -> QuestController:
 	return _controller_weak.get_ref() as QuestController
 
 
-func register_listener(listener_node: EventListenerNodeResource) -> void:
+func register_listener(listener_node: GraphNodeResource) -> void:
 	var evt: StringName = listener_node.event_name
 	if not _event_listeners.has(evt):
 		var list: Array[StringName] = []
@@ -31,7 +31,7 @@ func register_listener(listener_node: EventListenerNodeResource) -> void:
 		_event_listeners[evt].append(listener_node.id)
 
 
-func unregister_listener(listener_node: EventListenerNodeResource) -> void:
+func unregister_listener(listener_node: GraphNodeResource) -> void:
 	var evt: StringName = listener_node.event_name
 	if _event_listeners.has(evt):
 		_event_listeners[evt].erase(listener_node.id)
@@ -62,7 +62,7 @@ func on_global_event(event_name: StringName, payload: Dictionary) -> void:
 			continue
 
 		var node_def = controller.get_quest_data_manager().get_node_definition(node_id)
-		if node_def is EventListenerNodeResource:
+		if _is_event_listener(node_def):
 			# 2. Check Conditions (Instance-aware)
 			var condition_passes = true
 			if node_def.use_simple_conditions:
@@ -91,6 +91,18 @@ func clear() -> void:
 	_event_listeners.clear()
 
 
+## Returns true if the node is an EventListenerNodeResource.
+## Uses script path check to avoid loading event_listener_node_resource.gd
+## (which references ConditionResource via typed export, causing leaks at exit).
+func _is_event_listener(node_def: Resource) -> bool:
+	if not is_instance_valid(node_def):
+		return false
+	var script = node_def.get_script()
+	if not is_instance_valid(script):
+		return false
+	return "event_listener_node_resource" in script.resource_path
+
+
 ## Removes all event listeners for nodes in the given set. Use Dictionary for O(1) lookup.
 func remove_listeners_for_quest(nodes_in_quest: Dictionary) -> void:
 	for evt in _event_listeners.keys():
@@ -114,7 +126,8 @@ func _check_simple_conditions(conditions: Array[Dictionary], payload: Dictionary
 			continue
 
 		# Special handling for "HAS" (SimpleOperator.HAS)
-		if op == EventListenerNodeResource.SimpleOperator.HAS:
+		# SimpleOperator.HAS == 6 (see EventListenerNodeResource.SimpleOperator enum)
+		if op == 6:
 			if not payload.has(key):
 				return false
 			continue

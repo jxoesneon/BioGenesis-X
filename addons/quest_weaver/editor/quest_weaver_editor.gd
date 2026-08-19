@@ -312,7 +312,7 @@ func _on_bookmark_selected(path: String) -> void:
 
 func _on_close_bookmark_requested(path: String) -> void:
 	if data_manager.has_unsaved_changes(path):
-		var dialog = QWConstants.QuestConfirmationDialogScene.instantiate()
+		var dialog = QWConstants.load_scene(QWConstants.QuestConfirmationDialogScenePath).instantiate()
 		get_tree().root.add_child(dialog)
 		dialog.save_requested.connect(
 			func():
@@ -356,7 +356,7 @@ func _on_close_all_requested() -> void:
 			unsaved_paths.append(path)
 
 	if not unsaved_paths.is_empty():
-		var dialog = QWConstants.QuestConfirmationDialogScene.instantiate()
+		var dialog = QWConstants.load_scene(QWConstants.QuestConfirmationDialogScenePath).instantiate()
 		get_tree().root.add_child(dialog)
 		dialog.save_requested.connect(
 			func():

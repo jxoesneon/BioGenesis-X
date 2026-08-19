@@ -50,7 +50,7 @@ func _drop_data(_at_position, data) -> void:
 
 
 func _on_browse_button_pressed():
-	var dialog: QuestFileDialog = QWConstants.QuestFileDialogScene.instantiate()
+	var dialog: QuestFileDialog = QWConstants.load_scene(QWConstants.QuestFileDialogScenePath).instantiate()
 	get_tree().root.add_child(dialog)
 	dialog.path_confirmed.connect(_on_path_confirmed)
 	dialog.show_for_mode(QuestFileDialog.QuestDialogMode.OPEN_FILE)

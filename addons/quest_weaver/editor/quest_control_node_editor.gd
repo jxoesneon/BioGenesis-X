@@ -25,7 +25,7 @@ func _on_path_changed(new_path: String) -> void:
 func _on_browse_pressed() -> void:
 	if not is_instance_valid(edited_node_data):
 		return
-	var dialog = QWConstants.QuestFileDialogScene.instantiate()
+	var dialog = QWConstants.load_scene(QWConstants.QuestFileDialogScenePath).instantiate()
 	get_tree().root.add_child(dialog)
 	dialog.path_confirmed.connect(
 		func(path):

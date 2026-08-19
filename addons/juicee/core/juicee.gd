@@ -53,6 +53,15 @@ func shake_camera_3d(context: Node, intensity: float = 0.1, duration: float = 0.
 	effect.duration = duration
 	effect.apply(context)
 
+## Camera3D field-of-view punch — impact zoom for 3D games.
+## `fov_delta` is added to the active Camera3D's FOV (negative = zoom in, positive = zoom out)
+## then springs back to the original value over `duration`.
+func fov_3d(context: Node, fov_delta: float = -8.0, duration: float = 0.3) -> void:
+	var effect := JuiceeFOV3DEffect.new()
+	effect.fov_delta = fov_delta
+	effect.duration = duration
+	effect.apply(context)
+
 ## Camera2D zoom punch.
 func zoom_camera(context: Node, zoom_factor: float = 1.2, duration: float = 0.4) -> void:
 	var effect := JuiceeZoomEffect.new()

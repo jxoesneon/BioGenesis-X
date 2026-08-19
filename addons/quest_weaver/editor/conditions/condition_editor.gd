@@ -103,7 +103,7 @@ func _rebuild_ui() -> void:
 			add_row("Chance", spinbox)
 
 		ConditionResource.ConditionType.CHECK_ITEM:
-			var item_id_completer = QWConstants.AutoCompleteLineEditScene.instantiate()
+			var item_id_completer = QWConstants.load_scene(QWConstants.AutoCompleteLineEditScenePath).instantiate()
 			QWEditorUtils.populate_item_completer(item_id_completer)
 			item_id_completer.text = edited_condition.item_id
 			item_id_completer.text_submitted.connect(
@@ -146,7 +146,7 @@ func _rebuild_ui() -> void:
 			status_picker.item_selected.connect(_on_quest_status_picker_selected)
 			add_row("Expected Status", status_picker)
 
-			var quest_id_completer = QWConstants.AutoCompleteLineEditScene.instantiate()
+			var quest_id_completer = QWConstants.load_scene(QWConstants.AutoCompleteLineEditScenePath).instantiate()
 			QWEditorUtils.populate_quest_id_completer(quest_id_completer)
 			quest_id_completer.text = edited_condition.quest_id
 			var filter_edit = quest_id_completer.get_node_or_null("%FilterEdit")

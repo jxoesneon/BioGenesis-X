@@ -107,14 +107,14 @@ func _ready() -> void:
 		material = get_active_material(0)
 		material.next_pass = material.duplicate()
 		if OS.has_feature("web") or renderer == "gl_compatibility":
-			var back_shader = load("res://addons/nojoule-energy-shield/shield_web_back.gdshader")
+			var back_shader = load("res://addons/energy_shield/shield_web_back.gdshader")
 			material.shader = back_shader
-			var front_shader = load("res://addons/nojoule-energy-shield/shield_web_front.gdshader")
+			var front_shader = load("res://addons/energy_shield/shield_web_front.gdshader")
 			material.next_pass.shader = front_shader
 		else:
-			var back_shader = load("res://addons/nojoule-energy-shield/shield_back.gdshader")
+			var back_shader = load("res://addons/energy_shield/shield_back.gdshader")
 			material.shader = back_shader
-			var front_shader = load("res://addons/nojoule-energy-shield/shield_front.gdshader")
+			var front_shader = load("res://addons/energy_shield/shield_front.gdshader")
 			material.next_pass.shader = front_shader
 
 	update_material(
@@ -292,7 +292,7 @@ func _on_area_3d_body_shape_entered(
 # Load web-optimized shader that defines WEB preprocessor directive
 func _load_web_shader() -> void:
 	# Check if web shader exists, otherwise create it dynamically
-	var web_shader_path = "res://addons/nojoule-energy-shield/shield_web.gdshader"
+	var web_shader_path = "res://addons/energy_shield/shield_web.gdshader"
 	if ResourceLoader.exists(web_shader_path):
 		var web_shader = load(web_shader_path)
 		material.shader = web_shader

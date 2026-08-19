@@ -79,7 +79,7 @@ func _safe_rebuild() -> void:
 			var id_val = reward_dict.get("id", &"")
 			var is_temp = id_val == &""
 
-			var entry = QWConstants.RewardEntryScene.instantiate()
+			var entry = QWConstants.load_scene(QWConstants.RewardEntryScenePath).instantiate()
 			rewards_container.add_child(entry)
 			entry.setup(reward_dict, display_index, is_temp)
 			entry.remove_requested.connect(_on_reward_delete_requested.bind(i))

@@ -6,24 +6,34 @@ extends RefCounted
 ## Call clear_static_references() before plugin shutdown.
 
 # ==============================================================================
-# UI Scenes (.tscn) - Preloaded for instantiation
+# UI Scenes (.tscn) - String paths for lazy loading
 # ==============================================================================
-const MainViewScene = preload("../editor/quest_weaver_editor.tscn")
-const ValidatorDockScene = preload("../editor/validation/validator_dock.tscn")
-const AutoCompleteLineEditScene = preload("../editor/components/auto_complete_line_edit.tscn")
-const QuestFileDialogScene = preload("../editor/dialogs/quest_file_dialog.tscn")
-const QuestConfirmationDialogScene = preload("../editor/dialogs/quest_confirmation_dialog.tscn")
-const ObjectiveEditorEntryScene = preload("../editor/conditions/objective_editor_entry.tscn")
-const ItemStackEntryScene = preload("../editor/components/item_stack_entry.tscn")
-const RewardEntryScene = preload("../editor/components/reward_entry.tscn")
+# NOTE: These were previously const preload() calls, but preload() embeds
+# resource references in bytecode which causes resource leaks at exit
+# (Godot #77513). Use load_scene(path) to get the PackedScene on demand.
+const MainViewScenePath = "res://addons/quest_weaver/editor/quest_weaver_editor.tscn"
+const ValidatorDockScenePath = "res://addons/quest_weaver/editor/validation/validator_dock.tscn"
+const AutoCompleteLineEditScenePath = "res://addons/quest_weaver/editor/components/auto_complete_line_edit.tscn"
+const QuestFileDialogScenePath = "res://addons/quest_weaver/editor/dialogs/quest_file_dialog.tscn"
+const QuestConfirmationDialogScenePath = "res://addons/quest_weaver/editor/dialogs/quest_confirmation_dialog.tscn"
+const ObjectiveEditorEntryScenePath = "res://addons/quest_weaver/editor/conditions/objective_editor_entry.tscn"
+const ItemStackEntryScenePath = "res://addons/quest_weaver/editor/components/item_stack_entry.tscn"
+const RewardEntryScenePath = "res://addons/quest_weaver/editor/components/reward_entry.tscn"
 
 # Editor Scenes for specific components
-const OutputEntryScene = preload("../editor/components/parallel_output_editor_entry.tscn")
-const RandomOutputEntryScene = preload("../editor/components/random_output_editor_entry.tscn")
-const SyncInputEntryScene = preload("../editor/components/synchronize_input_editor_entry.tscn")
-const SyncOutputEntryScene = preload("../editor/components/synchronize_output_editor_entry.tscn")
-const SyncConditionEditorScene = preload("../editor/conditions/synchronize_condition_editor.tscn")
-const SimpleConditionEntryScene = preload("../editor/components/simple_condition_entry.tscn")
+const OutputEntryScenePath = "res://addons/quest_weaver/editor/components/parallel_output_editor_entry.tscn"
+const RandomOutputEntryScenePath = "res://addons/quest_weaver/editor/components/random_output_editor_entry.tscn"
+const SyncInputEntryScenePath = "res://addons/quest_weaver/editor/components/synchronize_input_editor_entry.tscn"
+const SyncOutputEntryScenePath = "res://addons/quest_weaver/editor/components/synchronize_output_editor_entry.tscn"
+const SyncConditionEditorScenePath = "res://addons/quest_weaver/editor/conditions/synchronize_condition_editor.tscn"
+const SimpleConditionEntryScenePath = "res://addons/quest_weaver/editor/components/simple_condition_entry.tscn"
+
+
+## Lazily loads a PackedScene by path. Returns null if the path is empty or invalid.
+static func load_scene(path: String) -> PackedScene:
+	if path.is_empty() or not ResourceLoader.exists(path):
+		return null
+	return load(path) as PackedScene
 
 # ==============================================================================
 # Strings, Paths & Identifiers

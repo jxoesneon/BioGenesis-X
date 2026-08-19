@@ -16,6 +16,10 @@ run/main_scene="res://scenes/main_menu.tscn"
 config/features=PackedStringArray("4.7", "Forward Plus")
 config/icon="res://icon.svg"
 
+[audio]
+
+buses/default_bus_layout="uid://cso4syp7360gj"
+
 [autoload]
 
 HardwareDetector="*res://scripts/HardwareDetector.gd"
@@ -34,6 +38,8 @@ GalacticNoiseField="*res://scripts/GalacticNoiseField.gd"
 LoadingScreenManager="*res://scripts/LoadingScreenManager.gd"
 CombatVFX="*res://scripts/CombatVFX.gd"
 CombatStats="*res://scripts/CombatStats.gd"
+DialogueManager="*res://addons/dialogue_manager/dialogue_manager.gd"
+QuestWeaverServices="*res://addons/quest_weaver/core/quest_weaver_services.gd"
 
 [display]
 

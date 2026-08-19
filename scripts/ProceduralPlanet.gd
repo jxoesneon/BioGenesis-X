@@ -13,6 +13,10 @@ extends Node3D
 
 const PlanetShaderResource = preload("res://shaders/procedural_planet.gdshader")
 const AtmosphereShaderResource = preload("res://shaders/atmosphere_scattering.gdshader")
+# Extremely Fast Atmosphere addon (fbcosentino screen-space scattering).
+# Pre-baked ShaderMaterial with all height/direction profile curves + gradient
+# textures. Duplicated per-planet so each gets its own sea_level / radius.
+const FarAtmosphereMaterialResource = preload("res://addons/extremely_fast_atmosphere/example/atmosphere_material_example.tres")
 
 @export var planet_name: String = "Terran Prime"
 @export var archetype: int = 3 # 3: Terran Oceanic
@@ -68,6 +72,12 @@ var moons_container: Node3D
 # Physical atmosphere scattering mesh (Sean O'Neil Rayleigh + Mie).
 var _atmosphere_mesh_instance: MeshInstance3D = null
 var _atmosphere_material: ShaderMaterial = null
+# Far-field atmosphere mesh (Extremely Fast Atmosphere addon — screen-space
+# scattering seen from space). Complements the near-field O'Neil sphere which
+# takes over once the camera descends into the atmosphere / onto the surface.
+var _far_atmosphere_mesh_instance: MeshInstance3D = null
+var _far_atmosphere_material: ShaderMaterial = null
+var _atmosphere_outer_radius_m: float = 0.0
 # Sun direction for atmosphere scattering (updated by the star system manager).
 var _sun_direction: Vector3 = Vector3(0.0, 0.0, 1.0)
 
@@ -356,12 +366,64 @@ func _generate_atmosphere_scattering() -> void:
 	_atmosphere_mesh_instance.material_override = _atmosphere_material
 	body_tilt_node.add_child(_atmosphere_mesh_instance)
 
+	# Far-field atmosphere (Extremely Fast Atmosphere addon) — screen-space
+	# scattering visible from space. Complements the near-field O'Neil sphere.
+	_atmosphere_outer_radius_m = outer_radius_m
+	_generate_far_atmosphere(outer_radius_m)
+
+## Generates the far-field atmosphere using the "Extremely Fast Atmosphere" addon
+## (fbcosentino screen-space scattering). This is the atmosphere seen from space
+## when approaching a planet — it complements the Sean O'Neil Rayleigh+Mie
+## near-field scattering sphere (_atmosphere_mesh_instance) which takes over
+## once the camera descends into the atmosphere / onto the surface.
+func _generate_far_atmosphere(outer_radius_m: float) -> void:
+	_far_atmosphere_mesh_instance = MeshInstance3D.new()
+	_far_atmosphere_mesh_instance.name = "FarAtmosphereEFA"
+	var box := BoxMesh.new()
+	box.flip_faces = true
+	box.size = Vector3.ONE * (2.1 * outer_radius_m)
+	_far_atmosphere_mesh_instance.mesh = box
+	# Disable Godot's built-in culling — the atmosphere box is much larger than
+	# the planet body and should always render when the planet is visible.
+	_far_atmosphere_mesh_instance.visibility_range_end = _VISIBILITY_RANGE_END_M
+	_far_atmosphere_mesh_instance.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF
+
+	# Start from the addon's pre-baked material (height/direction profile curves
+	# + gradient textures) and duplicate it so each planet owns its own copy.
+	var base_mat: ShaderMaterial = FarAtmosphereMaterialResource
+	_far_atmosphere_material = base_mat.duplicate() as ShaderMaterial
+	_far_atmosphere_material.set_shader_parameter("sea_level", radius_m)
+	_far_atmosphere_material.set_shader_parameter("atmosphere_radius", outer_radius_m)
+	_far_atmosphere_material.set_shader_parameter("atmosphere_density", 0.2)
+	_far_atmosphere_material.set_shader_parameter("water_density_factor", 0.0)
+	_far_atmosphere_mesh_instance.material_override = _far_atmosphere_material
+	body_tilt_node.add_child(_far_atmosphere_mesh_instance)
+
+## Updates the far-field Extremely Fast Atmosphere each frame: toggles visibility
+## based on camera distance (only visible from outside the atmosphere) and
+## orients the box mesh toward the sun so the scattering direction is correct.
+func _update_far_atmosphere(cam_dist: float) -> void:
+	if not is_instance_valid(_far_atmosphere_mesh_instance):
+		return
+	# The EFA shader is a screen-space overlay best viewed from outside the
+	# atmosphere. Once the camera descends below the atmosphere edge, hide it
+	# and let the near-field O'Neil scattering sphere handle the sky.
+	var show_far: bool = cam_dist > _atmosphere_outer_radius_m * 1.02
+	_far_atmosphere_mesh_instance.visible = show_far
+	if not show_far:
+		return
+	# Orient the box mesh so its basis matches the addon's atmosphere.gd
+	# set_sun_position convention: look_at(self - delta_pos) where delta_pos is
+	# the sun-relative offset. This aligns the shader's light_direction varying.
+	var self_pos: Vector3 = _far_atmosphere_mesh_instance.global_position
+	var sun_world: Vector3 = self_pos + _sun_direction * 1.0e9
+	var delta_pos: Vector3 = sun_world - self_pos
+	_far_atmosphere_mesh_instance.look_at(self_pos - delta_pos)
+
 ## Updates the atmosphere scattering uniforms each frame. Call from _process
 ## after computing the planet position. The camera position is transformed to
 ## planet-local space for the shader.
 func _update_atmosphere_uniforms() -> void:
-	if _atmosphere_material == null or not is_instance_valid(_atmosphere_mesh_instance):
-		return
 	var viewport: Viewport = get_viewport()
 	if viewport == null:
 		return
@@ -370,9 +432,14 @@ func _update_atmosphere_uniforms() -> void:
 		return
 	# Camera position in planet-local space (relative to planet center).
 	var cam_local: Vector3 = to_local(cam.global_position)
-	_atmosphere_material.set_shader_parameter("camera_pos", cam_local)
-	_atmosphere_material.set_shader_parameter("camera_height", cam_local.length())
-	_atmosphere_material.set_shader_parameter("sun_direction", _sun_direction)
+	var cam_dist: float = cam_local.length()
+	# Near-field Sean O'Neil atmosphere (Rayleigh + Mie).
+	if _atmosphere_material != null and is_instance_valid(_atmosphere_mesh_instance):
+		_atmosphere_material.set_shader_parameter("camera_pos", cam_local)
+		_atmosphere_material.set_shader_parameter("camera_height", cam_dist)
+		_atmosphere_material.set_shader_parameter("sun_direction", _sun_direction)
+	# Far-field Extremely Fast Atmosphere (screen-space, seen from space).
+	_update_far_atmosphere(cam_dist)
 
 ## Sets the sun direction for atmosphere scattering. Called by the star system
 ## manager or any script that knows the star's position.

@@ -51,7 +51,7 @@ func _rebuild_objectives_list() -> void:
 
 
 func _add_objective_ui(objective_resource: ObjectiveResource, index: int, total_count: int):
-	var entry_instance: ObjectiveEditorEntry = QWConstants.ObjectiveEditorEntryScene.instantiate()
+	var entry_instance: ObjectiveEditorEntry = QWConstants.load_scene(QWConstants.ObjectiveEditorEntryScenePath).instantiate()
 
 	entry_instance.move_up_requested.connect(_on_move_objective.bind(objective_resource, index, -1))
 	entry_instance.move_down_requested.connect(

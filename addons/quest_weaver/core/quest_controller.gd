@@ -1353,12 +1353,25 @@ func _cleanup_node_runtime(node_id: StringName, instance: QuestInstance) -> void
 		var executor = _node_registry.get_executor_for_node(node_def)
 		if executor and executor.has_method("cleanup_listeners"):
 			executor.cleanup_listeners(_execution_context, node_def)
-	elif node_def is EventListenerNodeResource:
+	elif _is_event_listener_node(node_def):
 		_event_manager.unregister_listener(node_def)
 	elif node_def is TimerNodeResource:
 		_timer_manager.remove_timer(node_id)
 
 	instance.set_node_active(node_id, false)
+
+
+## Returns true if the node definition is an EventListenerNodeResource.
+## Uses script path check instead of `is EventListenerNodeResource` to avoid
+## the compiler loading event_listener_node_resource.gd (which references
+## ConditionResource via typed export, causing resource leaks at exit).
+func _is_event_listener_node(node_def: GraphNodeResource) -> bool:
+	if not is_instance_valid(node_def):
+		return false
+	var script = node_def.get_script()
+	if not is_instance_valid(script):
+		return false
+	return "event_listener_node_resource" in script.resource_path
 
 
 func _ensure_execution_context_exists() -> void:

@@ -107,11 +107,14 @@ static func get_script_cached(path: String) -> Script:
 
 ## Creates a ConditionResource from script_path without loading the script when it's condition_resource.gd.
 ## Avoids load() for ConditionResource to reduce GDScriptCache refs (Godot #77513).
+## Uses dynamic load() instead of ConditionResource.new() to avoid the compiler
+## resolving the class_name at compile time, which holds a script reference.
 static func new_condition_from_path(script_path: String) -> Resource:
 	if script_path.is_empty():
 		return null
 	if "condition_resource.gd" in script_path:
-		return ConditionResource.new()
+		var cond_script := load("res://addons/quest_weaver/editor/conditions/condition_resource.gd")
+		return cond_script.new() if cond_script else null
 	var script := get_script_cached(script_path)
 	return script.new() if script else null
 

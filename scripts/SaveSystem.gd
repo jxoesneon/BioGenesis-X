@@ -29,6 +29,10 @@ const PROCEDURAL_FILE_PATH := "user://save_procedural.bin"
 const CURRENT_SCHEMA_VERSION := 2
 const MAX_BACKUPS := 3
 
+## Emitted just before the save data is serialized to disk. Connected systems
+## (e.g. QuestManager) use this to inject their state into current_save_data.
+signal about_to_save
+
 # --- SaverLoader integration ---
 var _saver_loader: SaverLoader
 
@@ -97,7 +101,8 @@ func create_debug_player() -> void:
 		"procedural_seeds": {
 			"planet_seeds": [],
 			"explored_systems": [],
-		}
+		},
+		"quest_weaver": {},
 	}
 	_galaxy_state = current_save_data["galaxy"].duplicate(true)
 	save_game()
@@ -124,6 +129,9 @@ func save_game() -> void:
 	# Sync galaxy cache into save data before writing
 	current_save_data["galaxy"] = _galaxy_state.duplicate(true)
 	current_save_data["schema_version"] = CURRENT_SCHEMA_VERSION
+
+	# Notify connected systems to inject their state before serialization.
+	about_to_save.emit()
 
 	var json_text := JSON.stringify(current_save_data, "\t")
 	var bytes := json_text.to_utf8_buffer()
@@ -496,6 +504,7 @@ func _deep_merge_defaults(data: Dictionary) -> Dictionary:
 		"inventory": {"credits": 0, "bio_matter": 0},
 		"galaxy": _default_galaxy_state(),
 		"procedural_seeds": {"planet_seeds": [], "explored_systems": []},
+		"quest_weaver": {},
 	}
 	return _deep_merge(data, defaults)
 

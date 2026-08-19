@@ -71,7 +71,7 @@ func _build_quest_picker_ui(node: GiveTakeItemNodeResource) -> void:
 	label.text = "Source Quest ID:"
 	content_container.add_child(label)
 
-	var quest_edit = QWConstants.AutoCompleteLineEditScene.instantiate()
+	var quest_edit = QWConstants.load_scene(QWConstants.AutoCompleteLineEditScenePath).instantiate()
 	QWEditorUtils.populate_quest_id_completer(quest_edit)
 	quest_edit.text = str(node.target_quest_id)
 	var filter_edit = quest_edit.get_node_or_null("%FilterEdit")
@@ -182,7 +182,7 @@ func _build_item_list_ui(node: GiveTakeItemNodeResource) -> void:
 		if key_str.begins_with("__new_"):
 			is_temp = true
 
-		var entry = QWConstants.ItemStackEntryScene.instantiate()
+		var entry = QWConstants.load_scene(QWConstants.ItemStackEntryScenePath).instantiate()
 		list_container.add_child(entry)
 
 		entry.setup(current_display_index, key, node.items[key], is_temp)

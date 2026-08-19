@@ -257,7 +257,13 @@ func _apply_impact(target: Node, hit_point: Vector3 = Vector3.ZERO) -> void:
 		# Check if target has shield before calling take_damage
 		if "bio_shield" in target and target.get("bio_shield") > 0.0:
 			hit_shield = true
-		target.call("take_damage", damage)
+		# Pass the hit position to shielded targets (player ship) so the energy
+		# shield ripple emanates from the actual impact location. Other targets
+		# only accept the damage amount.
+		if "bio_shield" in target:
+			target.call("take_damage", damage, hit_point)
+		else:
+			target.call("take_damage", damage)
 		# Check if killed
 		if "health" in target and float(target.get("health")) <= 0.0:
 			target_killed = true
@@ -267,7 +273,10 @@ func _apply_impact(target: Node, hit_point: Vector3 = Vector3.ZERO) -> void:
 		var parent: Node = target.get_parent()
 		if "bio_shield" in parent and parent.get("bio_shield") > 0.0:
 			hit_shield = true
-		parent.call("take_damage", damage)
+		if "bio_shield" in parent:
+			parent.call("take_damage", damage, hit_point)
+		else:
+			parent.call("take_damage", damage)
 		if "hull_integrity" in parent and float(parent.get("hull_integrity")) <= 0.0:
 			target_killed = true
 

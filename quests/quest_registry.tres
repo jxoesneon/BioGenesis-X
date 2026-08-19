@@ -1,0 +1,10 @@
+[gd_resource type="Resource" script_class="QuestRegistry" format=3]
+
+[ext_resource type="Script" path="res://addons/quest_weaver/core/quest_registry.gd" id="1_bxquest"]
+
+[resource]
+script = ExtResource("1_bxquest")
+quest_path_map = {
+&"first_symbiosis": "res://quests/intro_quest.tres"
+}
+metadata/_custom_type_script = "res://addons/quest_weaver/core/quest_registry.gd"

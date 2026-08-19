@@ -9,6 +9,10 @@ extends Node
 ## Active VFX budget — prevents particle explosion spam from tanking FPS
 const MAX_ACTIVE_VFX: int = 64
 
+# Cached Juicee autoload reference (dynamic lookup so this autoload parses cleanly
+# even when the Juicee singleton isn't registered, e.g. headless test runs).
+var _juicee_node: Node = null
+
 ## Spawn an impact effect at the given world position.
 ## Returns the spawned Node3D (or null if budget exceeded).
 func spawn_impact(pos: Vector3, color: Color, hit_shield: bool, damage: float) -> Node3D:
@@ -18,6 +22,8 @@ func spawn_impact(pos: Vector3, color: Color, hit_shield: bool, damage: float) -
 	var vfx: Node3D = _create_impact_node(color, hit_shield, damage)
 	vfx.global_position = pos
 	root.current_scene.add_child(vfx)
+	# Juicee impact juice: 3D camera shake + hit-stop + FOV punch, scaled by damage.
+	_trigger_combat_juice(damage, hit_shield)
 	return vfx
 
 ## Spawn a muzzle flash at the given world position and direction.
@@ -40,6 +46,13 @@ func spawn_explosion(pos: Vector3, color: Color, scale: float = 1.0) -> Node3D:
 	var explosion := _create_explosion(color, scale)
 	explosion.global_position = pos
 	root.current_scene.add_child(explosion)
+	# Juicee explosion juice: big shake + hit-stop + FOV kick, scaled by blast size.
+	var juicee: Node = _get_juicee()
+	if juicee:
+		var intensity: float = clampf(scale, 0.3, 1.5)
+		juicee.call("shake_camera_3d", self, 0.1 + intensity * 0.2, 0.3 + intensity * 0.2)
+		juicee.call("hit_stop", self, 0.05 + intensity * 0.04, 0.0)
+		juicee.call("fov_3d", self, -4.0 - intensity * 6.0, 0.3 + intensity * 0.2)
 	return explosion
 
 ## Spawn a shield ripple effect at the given position, oriented to the hit normal.
@@ -276,6 +289,32 @@ func _create_shield_ripple(color: Color) -> Node3D:
 # ==============================================================================
 # Internal: Helpers
 # ==============================================================================
+
+## Returns the Juicee autoload node if present (dynamic lookup so this script
+## parses without the singleton registered). Returns null in headless/test runs.
+func _get_juicee() -> Node:
+	if _juicee_node and is_instance_valid(_juicee_node):
+		return _juicee_node
+	var root := Engine.get_main_loop() as SceneTree
+	if root and root.root and root.root.has_node("Juicee"):
+		_juicee_node = root.root.get_node("Juicee")
+		return _juicee_node
+	return null
+
+## Fire Juicee combat-impact juice (3D shake + hit-stop + FOV punch) scaled by
+## the hit's damage. Heavy hits and hull breaches get a brief hit-stop for weight.
+## No-ops when Juicee is unavailable.
+func _trigger_combat_juice(damage: float, hit_shield: bool) -> void:
+	var juicee: Node = _get_juicee()
+	if juicee == null:
+		return
+	var intensity: float = clampf(damage / 50.0, 0.1, 1.0)
+	juicee.call("shake_camera_3d", self, 0.04 + intensity * 0.18, 0.15 + intensity * 0.15)
+	# Hit-stop only on weighty impacts (big damage or hull breach) to avoid
+	# constant time freezes during rapid-fire combat.
+	if intensity >= 0.6 and not hit_shield:
+		juicee.call("hit_stop", self, 0.03 + intensity * 0.04, 0.0)
+	juicee.call("fov_3d", self, -2.0 - intensity * 5.0, 0.2 + intensity * 0.15)
 
 func _create_fade_ramp_texture(color: Color) -> GradientTexture1D:
 	var grad := Gradient.new()

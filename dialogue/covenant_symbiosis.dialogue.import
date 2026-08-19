@@ -1,0 +1,16 @@
+[remap]
+
+importer="dialogue_manager"
+importer_version=15
+type="Resource"
+uid="uid://diw7gq2n2yjsa"
+path="res://.godot/imported/covenant_symbiosis.dialogue-23ee2bf7034ae1a142ed9ff5903dcf3e.tres"
+
+[deps]
+
+source_file="res://dialogue/covenant_symbiosis.dialogue"
+dest_files=["res://.godot/imported/covenant_symbiosis.dialogue-23ee2bf7034ae1a142ed9ff5903dcf3e.tres"]
+
+[params]
+
+defaults=true

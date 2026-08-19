@@ -119,7 +119,7 @@ func _enter_tree() -> void:
 		validator_dock = base_control.find_child(QWConstants.VALIDATOR_DOCK_NAME, true, false)
 
 		if not is_instance_valid(validator_dock):
-			validator_dock = QWConstants.ValidatorDockScene.instantiate()
+			validator_dock = QWConstants.load_scene(QWConstants.ValidatorDockScenePath).instantiate()
 			validator_dock.name = QWConstants.VALIDATOR_DOCK_NAME
 			add_control_to_bottom_panel(validator_dock, "Quest Validator")
 
@@ -226,7 +226,7 @@ func _make_visible(visible: bool):
 
 	if not is_instance_valid(main_view):
 		editor_data = _load_editor_data()
-		main_view = QWConstants.MainViewScene.instantiate()
+		main_view = QWConstants.load_scene(QWConstants.MainViewScenePath).instantiate()
 		EditorInterface.get_editor_main_screen().add_child(main_view)
 
 		_connect_signals()

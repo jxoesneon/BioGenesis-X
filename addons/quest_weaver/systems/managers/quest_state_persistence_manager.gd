@@ -163,13 +163,25 @@ func _restore_event_listeners(controller: QuestController, instances: Array = []
 			if not node_def:
 				continue
 
-			if node_def is EventListenerNodeResource:
+			if _is_event_listener_node(node_def):
 				event_manager.register_listener(node_def)
 			elif node_def is TaskNodeResource:
 				if is_instance_valid(controller._execution_context):
 					TaskNodeExecutor.register_listeners(
 						controller._execution_context, node_def, instance
 					)
+
+
+## Returns true if the node is an EventListenerNodeResource.
+## Uses script path check to avoid loading event_listener_node_resource.gd
+## (which references ConditionResource via typed export, causing leaks at exit).
+func _is_event_listener_node(node_def: Resource) -> bool:
+	if not is_instance_valid(node_def):
+		return false
+	var script = node_def.get_script()
+	if not is_instance_valid(script):
+		return false
+	return "event_listener_node_resource" in script.resource_path
 
 
 # Removes stale nodes from save data to prevent crashes

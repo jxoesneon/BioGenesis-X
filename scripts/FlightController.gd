@@ -129,6 +129,12 @@ var bio_shield_regen_rate: float = 8.0  # Shield regen per second when not takin
 var bio_shield_regen_delay: float = 3.0  # Seconds after damage before regen resumes
 var bio_shield_regen_timer: float = 0.0  # Countdown to regen
 var damage_flash_timer: float = 0.0  # Transient damage indicator
+# Energy shield bubble visual (uses the nojoule energy-shield shader). Child of
+# the ship body so it follows the vessel. Driven by bio_shield strength.
+var _shield_visual: BioShieldVisual = null
+# Cached Juicee autoload reference (looked up dynamically so the script parses
+# cleanly even when the Juicee singleton isn't registered, e.g. headless tests).
+var _juicee_node: Node = null
 signal shield_hit(absorbed: float, remaining: float)
 signal hull_hit(damage: float, remaining: float)
 signal ship_destroyed
@@ -188,6 +194,7 @@ func _ready() -> void:
 	_setup_camera()
 	_find_organ_telemetry()
 	_ensure_unified_collision()
+	_setup_shield_visual()
 	_init_atmospheric_integration()
 
 ## Calculates physical mass and principal moments of inertia for the entire ship as a single rigid body
@@ -268,6 +275,81 @@ func _ensure_unified_collision() -> void:
 		hull_box.size = Vector3(6.5, 4.8, 28.0)
 		col_shape.shape = hull_box
 
+## Spawns the energy-shield bubble visual as a child of the ship body so it
+## follows the vessel. Sized to encompass the bio mesh AABB.
+func _setup_shield_visual() -> void:
+	# Compute a bubble radius + center from the bio mesh AABB when available so
+	# the shield fully encloses the ship. Fall back to vessel dimensions.
+	var bubble_radius: float = 16.0
+	var bubble_center: Vector3 = Vector3.ZERO
+	var bio_mesh: MeshInstance3D = null
+	for child: Node in get_children():
+		if child is ProceduralBioMesh:
+			bio_mesh = child as MeshInstance3D
+			break
+		elif child is MeshInstance3D and bio_mesh == null:
+			bio_mesh = child as MeshInstance3D
+	if bio_mesh and bio_mesh.mesh:
+		var aabb: AABB = bio_mesh.get_aabb()
+		if aabb.size != Vector3.ZERO:
+			bubble_center = aabb.get_center()
+			bubble_radius = maxf(aabb.size.x, maxf(aabb.size.y, aabb.size.z)) * 0.62 + 2.0
+	# Clamp to a sensible range (ship is ~28m long, shield should be 12–40m radius).
+	bubble_radius = clampf(bubble_radius, 12.0, 40.0)
+
+	_shield_visual = BioShieldVisual.new()
+	_shield_visual.name = "BioShieldVisual"
+	_shield_visual.bubble_radius = bubble_radius
+	_shield_visual.position = bubble_center
+	# Shield renders behind/around the ship; don't let it affect collision or picking.
+	_shield_visual.set_process_input(false)
+	add_child(_shield_visual)
+	_shield_visual.set_strength(bio_shield / maxf(1.0, bio_shield_max))
+
+## Returns the Juicee autoload node if present (dynamic lookup so the script
+## parses without the singleton registered). Returns null in headless/test runs.
+func _get_juicee() -> Node:
+	if _juicee_node and is_instance_valid(_juicee_node):
+		return _juicee_node
+	if not is_inside_tree() or not get_tree():
+		return null
+	var root_node: Node = get_tree().root
+	if root_node.has_node("Juicee"):
+		_juicee_node = root_node.get_node("Juicee")
+		return _juicee_node
+	return null
+
+## Fire Juicee impact juice (3D camera shake + hit-stop + FOV punch) scaled by
+## [param intensity] (0..1). No-ops when Juicee is unavailable or screenshake is
+## disabled via the accessibility multiplier.
+func _trigger_impact_juice(intensity: float, heavy: bool) -> void:
+	if camera_shake_multiplier <= 0.0:
+		return
+	var juicee: Node = _get_juicee()
+	if juicee == null:
+		return
+	var i: float = clampf(intensity, 0.0, 1.0)
+	if i <= 0.0:
+		return
+	# 3D camera shake — snappy impact punch on top of the sustained manual shake.
+	juicee.call("shake_camera_3d", self, 0.06 + i * 0.22, 0.18 + i * 0.18)
+	# Brief hit-stop for weighty impacts (heavier on hull breaches / big hits).
+	if heavy:
+		juicee.call("hit_stop", self, 0.03 + i * 0.05, 0.0)
+	# FOV punch — zoom-in kick that springs back for a satisfying impact zoom.
+	juicee.call("fov_3d", self, -3.0 - i * 6.0, 0.25 + i * 0.2)
+
+## Fire Juicee boost-ignition juice: a brief FOV widen + light shake for the
+## exothermal siphon surge. No-ops when Juicee is unavailable or shake is disabled.
+func _trigger_boost_juice() -> void:
+	if camera_shake_multiplier <= 0.0:
+		return
+	var juicee: Node = _get_juicee()
+	if juicee == null:
+		return
+	juicee.call("fov_3d", self, 6.0, 0.35)
+	juicee.call("shake_camera_3d", self, 0.05, 0.2)
+
 func _input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion and mouse_control_enabled:
 		mouse_delta += event.relative
@@ -299,12 +381,25 @@ func _process(delta: float) -> void:
 	if mouse_control_enabled and wave_state == WaveState.OFF:
 		mouse_flight_cursor = mouse_flight_cursor.lerp(Vector2.ZERO, clampf(delta * 4.5, 0.0, 1.0))
 
-	# Shield regeneration — delayed after taking damage
-	if bio_shield < bio_shield_max:
-		if bio_shield_regen_timer > 0.0:
-			bio_shield_regen_timer = maxf(0.0, bio_shield_regen_timer - delta)
-		else:
-			bio_shield = minf(bio_shield_max, bio_shield + bio_shield_regen_rate * delta)
+	# NeuralRegen self-healing system — handles shield regen, hull regen, and
+	# organ healing. Replaces the legacy inline shield regen logic below.
+	# (Kept as fallback if NeuralRegen autoload is not present.)
+	var ml := Engine.get_main_loop()
+	var neural_regen: Node = null
+	if ml is SceneTree and ml.root:
+		neural_regen = ml.root.get_node_or_null("NeuralRegen")
+	if neural_regen and neural_regen.has_method("process_regeneration"):
+		neural_regen.process_regeneration(delta, self)
+	else:
+		# Legacy shield regeneration — delayed after taking damage
+		if bio_shield < bio_shield_max:
+			if bio_shield_regen_timer > 0.0:
+				bio_shield_regen_timer = maxf(0.0, bio_shield_regen_timer - delta)
+			else:
+				bio_shield = minf(bio_shield_max, bio_shield + bio_shield_regen_rate * delta)
+				# Keep the shield visual strength in sync as it regenerates.
+				if _shield_visual and is_instance_valid(_shield_visual):
+					_shield_visual.set_strength(bio_shield / maxf(1.0, bio_shield_max))
 
 func _physics_process(delta: float) -> void:
 	# Skip normal rotation during wave engine CHARGING/ENGAGED — auto-align handles all rotation
@@ -897,26 +992,46 @@ func _handle_thrust(delta: float) -> void:
 
 ## Called when the ship takes damage (from BioPlasmaProjectile, collisions, etc.)
 ## Shield absorbs damage first, then hull. Triggers shield_hit/hull_hit signals.
-func take_damage(amount: float) -> void:
+## [param hit_pos] is the world-space impact location (optional; defaults to a
+## plausible surface point) used to place the energy-shield ripple effect.
+func take_damage(amount: float, hit_pos: Vector3 = Vector3.ZERO) -> void:
 	CombatStats.register_damage_received(amount)
+	# Notify NeuralRegen self-healing system (resets regen timers, injects damage map)
+	var _ml := Engine.get_main_loop()
+	var _nr: Node = null
+	if _ml is SceneTree and _ml.root:
+		_nr = _ml.root.get_node_or_null("NeuralRegen")
+	if _nr and _nr.has_method("on_damage_taken"):
+		_nr.on_damage_taken(amount)
 	var remaining_damage: float = amount
+	var shield_absorbed: bool = false
 	# Shield absorbs first
 	if bio_shield > 0.0:
 		var absorbed: float = minf(bio_shield, remaining_damage)
 		bio_shield = maxf(0.0, bio_shield - absorbed)
 		remaining_damage -= absorbed
 		bio_shield_regen_timer = bio_shield_regen_delay
+		shield_absorbed = absorbed > 0.0
 		shield_hit.emit(absorbed, bio_shield)
+		# Energy shield visual: ripple at the hit location + strength update.
+		if _shield_visual and is_instance_valid(_shield_visual):
+			_shield_visual.trigger_impact(hit_pos)
+			_shield_visual.set_strength(bio_shield / maxf(1.0, bio_shield_max))
 	# Remaining damage goes to hull
 	if remaining_damage > 0.0:
 		hull_integrity = maxf(0.0, hull_integrity - remaining_damage)
 		damage_flash_timer = minf(1.0, damage_flash_timer + remaining_damage / 50.0)
 		camera_shake_intensity = maxf(camera_shake_intensity, remaining_damage * 0.05)
 		hull_hit.emit(remaining_damage, hull_integrity)
+		# Hull breach — heavy impact juice (hit-stop + bigger shake/zoom).
+		_trigger_impact_juice(clampf(remaining_damage / 50.0, 0.2, 1.0), true)
 	else:
 		# Shield absorbed all — smaller shake, no hull flash
 		camera_shake_intensity = maxf(camera_shake_intensity, amount * 0.02)
 		damage_flash_timer = minf(0.3, damage_flash_timer + amount / 100.0)
+		# Lighter juice for shield-only hits (no hit-stop unless it was a big hit).
+		if shield_absorbed:
+			_trigger_impact_juice(clampf(amount / 80.0, 0.1, 0.6), amount >= 40.0)
 
 	# Audio feedback
 	var ml := Engine.get_main_loop()
@@ -960,6 +1075,9 @@ func _respawn() -> void:
 	damage_flash_timer = 0.0
 	camera_shake_intensity = 0.0
 	mouse_control_enabled = true
+	# Restore the energy shield visual to full strength.
+	if _shield_visual and is_instance_valid(_shield_visual):
+		_shield_visual.set_strength(1.0)
 	# Reset velocity
 	linear_velocity_vector = Vector3.ZERO
 	angular_velocity_vector = Vector3.ZERO
@@ -982,6 +1100,8 @@ func _handle_bio_boost(delta: float) -> void:
 		if not is_boosting:
 			is_boosting = true
 			boost_state_changed.emit(true)
+			# Boost ignition juice: subtle FOV widen + light shake for a sense of surge.
+			_trigger_boost_juice()
 		
 		bio_plasma_fuel = max(0.0, bio_plasma_fuel - boost_drain_rate * delta)
 		fuel_changed.emit(bio_plasma_fuel, max_bio_plasma_fuel)

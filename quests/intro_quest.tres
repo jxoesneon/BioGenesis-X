@@ -1,0 +1,135 @@
+[gd_resource type="Resource" script_class="QuestGraphResource" format=3]
+
+[ext_resource type="Script" path="res://addons/quest_weaver/nodes/common/start_node/start_node_resource.gd" id="1_oex77"]
+[ext_resource type="Script" path="res://addons/quest_weaver/nodes/logic/quest_context_node/quest_context_node_resource.gd" id="2_s8nqj"]
+[ext_resource type="Script" path="res://addons/quest_weaver/editor/conditions/objective_resource.gd" id="3_e21d2"]
+[ext_resource type="Script" path="res://addons/quest_weaver/nodes/action/task_node/task_node_resource.gd" id="4_web2q"]
+[ext_resource type="Script" path="res://addons/quest_weaver/nodes/logic/quest_node/quest_node_resource.gd" id="5_moc2t"]
+[ext_resource type="Script" path="res://addons/quest_weaver/nodes/common/end_node/end_node_resource.gd" id="6_tgv0k"]
+[ext_resource type="Script" path="res://addons/quest_weaver/core/quest_graph_resource.gd" id="7_femwg"]
+
+[sub_resource type="Resource" id="Resource_gcv0j"]
+script = ExtResource("1_oex77")
+id = &"start"
+input_ports = Array[StringName]([])
+
+[sub_resource type="Resource" id="Resource_4j68m"]
+script = ExtResource("2_s8nqj")
+quest_type = 0
+quest_id = &"first_symbiosis"
+quest_title = "First Symbiosis"
+quest_description = "Approach the drifting Void-Fauna Leviathan, undergo the Covenant of Symbiosis ritual, and bond with the organism to become its pilot. Then take flight for the first time."
+log_on_start = "A bioluminescent pulse ripples across the void — the Leviathan awaits. Approach with caution."
+id = &"ctx"
+category = &"Logic"
+graph_position = Vector2(250, 0)
+
+[sub_resource type="Resource" id="Resource_b51ar"]
+script = ExtResource("3_e21d2")
+id = &"obj_approach_void_fauna"
+description = "Approach the Void-Fauna"
+
+[sub_resource type="Resource" id="Resource_pcnfv"]
+script = ExtResource("4_web2q")
+objectives = Array[ExtResource("3_e21d2")]([SubResource("Resource_b51ar")])
+id = &"task_approach"
+category = &"Action"
+graph_position = Vector2(500, 0)
+
+[sub_resource type="Resource" id="Resource_3m8rh"]
+script = ExtResource("3_e21d2")
+id = &"obj_complete_covenant_dialogue"
+description = "Complete the Covenant dialogue"
+
+[sub_resource type="Resource" id="Resource_5oxsu"]
+script = ExtResource("4_web2q")
+objectives = Array[ExtResource("3_e21d2")]([SubResource("Resource_3m8rh")])
+id = &"task_dialogue"
+category = &"Action"
+graph_position = Vector2(750, 0)
+
+[sub_resource type="Resource" id="Resource_8jtvj"]
+script = ExtResource("3_e21d2")
+id = &"obj_bond_with_void_fauna"
+description = "Bond with the Void-Fauna (becomes your ship)"
+
+[sub_resource type="Resource" id="Resource_p80xe"]
+script = ExtResource("4_web2q")
+objectives = Array[ExtResource("3_e21d2")]([SubResource("Resource_8jtvj")])
+id = &"task_bond"
+category = &"Action"
+graph_position = Vector2(1000, 0)
+
+[sub_resource type="Resource" id="Resource_ucwcr"]
+script = ExtResource("3_e21d2")
+id = &"obj_take_first_flight"
+description = "Take flight for the first time"
+
+[sub_resource type="Resource" id="Resource_p68o4"]
+script = ExtResource("4_web2q")
+objectives = Array[ExtResource("3_e21d2")]([SubResource("Resource_ucwcr")])
+id = &"task_flight"
+category = &"Action"
+graph_position = Vector2(1250, 0)
+
+[sub_resource type="Resource" id="Resource_ms0f7"]
+script = ExtResource("5_moc2t")
+target_quest_id = &"first_symbiosis"
+id = &"quest_complete"
+category = &"Logic"
+graph_position = Vector2(1500, 0)
+
+[sub_resource type="Resource" id="Resource_2hb02"]
+script = ExtResource("6_tgv0k")
+id = &"end"
+graph_position = Vector2(1750, 0)
+output_ports = Array[StringName]([])
+
+[resource]
+script = ExtResource("7_femwg")
+nodes = {
+&"ctx": SubResource("Resource_4j68m"),
+&"end": SubResource("Resource_2hb02"),
+&"quest_complete": SubResource("Resource_ms0f7"),
+&"start": SubResource("Resource_gcv0j"),
+&"task_approach": SubResource("Resource_pcnfv"),
+&"task_bond": SubResource("Resource_p80xe"),
+&"task_dialogue": SubResource("Resource_5oxsu"),
+&"task_flight": SubResource("Resource_p68o4")
+}
+connections = Array[Dictionary]([{
+"from_node": &"start",
+"from_port": 0,
+"to_node": &"ctx",
+"to_port": 0
+}, {
+"from_node": &"ctx",
+"from_port": 0,
+"to_node": &"task_approach",
+"to_port": 0
+}, {
+"from_node": &"task_approach",
+"from_port": 0,
+"to_node": &"task_dialogue",
+"to_port": 0
+}, {
+"from_node": &"task_dialogue",
+"from_port": 0,
+"to_node": &"task_bond",
+"to_port": 0
+}, {
+"from_node": &"task_bond",
+"from_port": 0,
+"to_node": &"task_flight",
+"to_port": 0
+}, {
+"from_node": &"task_flight",
+"from_port": 0,
+"to_node": &"quest_complete",
+"to_port": 0
+}, {
+"from_node": &"quest_complete",
+"from_port": 0,
+"to_node": &"end",
+"to_port": 0
+}])
