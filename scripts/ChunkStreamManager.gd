@@ -64,7 +64,9 @@ const NEAR_CHUNK_SIZE_M: float = NEAR_CHUNK_SIZE_AU * 149597870700.0
 
 # --- Streaming radii (how many chunks around the ship to load) ---
 const FAR_STREAM_RADIUS_CHUNKS: int = 3      # 3 chunks = 3 AU radius
-const NEAR_STREAM_RADIUS_CHUNKS: int = 4      # 4 chunks = 0.04 AU = 6M km radius
+# Council-approved reduction (DOCKET_20260820_PRIMITIVE_BUDGET_AUDIT_2.md):
+# 4→3 reduces near chunk grid from 9×9=81 to 7×7=49, saving ~864K prims.
+const NEAR_STREAM_RADIUS_CHUNKS: int = 3      # 3 chunks = 0.03 AU = 4.5M km radius
 
 # --- LOD tiers ---
 enum LOD {
@@ -82,7 +84,9 @@ const MAX_FRAME_TIME_MS: float = 8.0  # Stop loading if frame would exceed 8ms
 
 # --- Element caps per chunk ---
 const MAX_ASTEROIDS_PER_FAR_CHUNK: int = 40
-const MAX_ASTEROIDS_PER_NEAR_CHUNK: int = 15
+# Council-approved reduction (DOCKET_20260820_PRIMITIVE_BUDGET_AUDIT_2.md):
+# 15→8 halves near-field asteroid density, saving ~1.09M prims.
+const MAX_ASTEROIDS_PER_NEAR_CHUNK: int = 8
 const MAX_ENEMIES_PER_NEAR_CHUNK: int = 3
 const MAX_ANOMALIES_PER_FAR_CHUNK: int = 2
 const MAX_HAZARDS_PER_FAR_CHUNK: int = 1

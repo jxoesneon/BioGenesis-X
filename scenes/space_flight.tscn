@@ -236,7 +236,8 @@ shader_params/texture_emission = ExtResource("16_psftex")
 
 [node name="AsteroidField" type="Node3D" parent="." unique_id=2026760749]
 script = ExtResource("4_asteroids")
-asteroid_subdivision_level = 3
+asteroid_count = 0
+asteroid_subdivision_level = 2
 
 [node name="SystemNoiseField" type="Node" parent="." unique_id=1100000001]
 script = ExtResource("8_noise")
