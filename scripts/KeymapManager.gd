@@ -568,14 +568,14 @@ func _deserialize_event(data: Dictionary) -> InputEvent:
 	var type: String = String(data.get("type", ""))
 	if type == "key":
 		var k := InputEventKey.new()
-		k.keycode = int(data.get("keycode", 0))
+		k.keycode = int(data.get("keycode", 0)) as Key
 		k.ctrl_pressed = bool(data.get("ctrl", false))
 		k.shift_pressed = bool(data.get("shift", false))
 		k.alt_pressed = bool(data.get("alt", false))
 		return k
 	elif type == "mouse":
 		var m := InputEventMouseButton.new()
-		m.button_index = int(data.get("button", 0))
+		m.button_index = int(data.get("button", 0)) as MouseButton
 		return m
 	return null
 
@@ -629,11 +629,11 @@ func _event_label_string(event: InputEvent) -> String:
 
 func _key(keycode: int) -> InputEventKey:
 	var k := InputEventKey.new()
-	k.keycode = keycode
+	k.keycode = keycode as Key
 	return k
 
 
 func _mouse(button: int) -> InputEventMouseButton:
 	var m := InputEventMouseButton.new()
-	m.button_index = button
+	m.button_index = button as MouseButton
 	return m

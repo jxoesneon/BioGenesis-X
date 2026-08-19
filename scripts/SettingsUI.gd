@@ -436,7 +436,8 @@ func _add_keybinding_row(parent: VBoxContainer, action: String, label_text: Stri
 	add_btn.add_theme_font_size_override("font_size", 14)
 	add_btn.add_theme_color_override("font_color", COLOR_ACCENT_DEBUG)
 	add_btn.tooltip_text = "Add another key binding"
-	add_btn.pressed.connect(_on_add_binding_pressed.bind(action, btn_count := buttons.size()))
+	var btn_count: int = buttons.size()
+	add_btn.pressed.connect(_on_add_binding_pressed.bind(action, btn_count))
 	row.add_child(add_btn)
 
 	_binding_rows[action] = {

@@ -604,7 +604,7 @@ func _apply_time_scale(scale: float) -> void:
 	var clamped := clampf(scale, 0.1, 4.0)
 	Engine.time_scale = clamped
 
-func _apply_verbose_logging(enabled: bool) -> void:
+func _apply_verbose_logging(_enabled: bool) -> void:
 	# Stored in settings — systems check get_setting("debug", "verbose_logging")
 	# at runtime to decide whether to print debug output.
 	pass
