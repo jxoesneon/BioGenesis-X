@@ -5,10 +5,42 @@ render_mode cull_disabled, depth_draw_opaque, blend_mix;
 // BIO-GENESIS-X: NeuralRegen Bioluminescent Regeneration Visual Shader
 // ============================================================================
 // Renders a pulsing bioluminescent regeneration pattern on the ship mesh.
-//   - Cyan-green glow for healthy regen (healing in progress)
-//   - Red-orange glow for damaged areas (wounds, recent hits)
-//   - Noise-based organic cellular/vein patterns
-//   - Intensity scales with NeuralRegen.regen_visual_intensity [0-1]
+//
+// LORE CONNECTION — Exoskeleton & Nanite Defense System (ORGAN_SYSTEMS.md):
+//   The Void-Fauna's Sub-Dermal Bio-Nanite Bed (1.2 m³/s) circulates
+//   microscopic nanobots through the hemolymph. When the chitin carapace is
+//   punctured, nanites carry lead, iron, and chitin to seal breaches via
+//   hyper-clotting. This shader visualizes that biological process:
+//
+//   - Cyan-green glow (#00F28C): Active nanite repair — the "healing" color
+//     from the 12-color bioluminescent coding system (docs/DESIGN_DIRECTION.md).
+//     Green = healing/regeneration/nanites. The cellular Voronoi pattern
+//     represents the nanite swarms converging on damage sites — each cell
+//     is a nanite cluster forming a clot.
+//
+//   - Red-orange glow (#FF591A): Recent damage — the "damage/danger" color.
+//     Wounds glow red-orange before nanites arrive, then transition to
+//     cyan-green as healing progresses. This matches the damage_flash
+//     parameter from NeuralRegen.gd (recent hits flash, then fade to
+//     sustained healing glow).
+//
+//   - Bio-teal veins (#1CE6B3): The hemolymph circulatory network — the
+//     Peristaltic Heart Core pumps copper-hemocyanin hemolymph through
+//     the Central Aorta Highway to organ capillary beds. The FBM vein
+//     pattern represents this vascular network carrying nanites to wounds.
+//
+//   - Damage map R channel: Localized damage intensity (where the hull was
+//     punctured). G channel: Heal chemical concentration (where nanites are
+//     actively clotting). This two-channel approach models the real biological
+//     process — damage creates a wound, nanites converge, heal chemical
+//     rises as the clot forms.
+//
+// The pulsing animation (pulse_speed, pulse_amplitude) represents the
+// Peristaltic Heart Core's 68 BPM circulatory rhythm — nanites surge through
+// the hemolymph in pulses, not a continuous flow.
+//
+// Lore reference: LORE.md "Bio-Nanite Repair Swarms" + ORGAN_SYSTEMS.md
+// "Exoskeleton & Nanite Defense System" pipeline.
 // ============================================================================
 
 group_uniforms Regen_Dynamics;
@@ -18,12 +50,19 @@ uniform float pulse_speed : hint_range(0.1, 10.0, 0.1) = 2.0;
 uniform float pulse_amplitude : hint_range(0.0, 2.0, 0.05) = 0.8;
 
 group_uniforms Color_Palette;
+// Green = healing/nanites (bioluminescent coding system)
 uniform vec4 healthy_color : source_color = vec4(0.0, 0.95, 0.55, 1.0);  // Cyan-green
+// Red = damage/danger (bioluminescent coding system)
 uniform vec4 damaged_color : source_color = vec4(1.0, 0.35, 0.1, 1.0);   // Red-orange
+// Teal = hemolymph circulatory network (Peristaltic Heart Core pipeline)
 uniform vec4 vein_color : source_color = vec4(0.1, 0.9, 0.7, 1.0);       // Bio-teal veins
 
 group_uniforms Damage_Map;
 // 2D damage map (R = damage intensity 0..1, G = heal chemical 0..1).
+// R channel: where the chitin carapace was punctured (wound location).
+// G channel: where bio-nanites are actively clotting (heal chemical
+//   concentration — rises as the Sub-Dermal Bio-Nanite Bed converges
+//   on the wound and forms a hyper-clot).
 // Sampled with the mesh UVs. Defaults to white (no damage, full heal) so the
 // overlay is invisible when no damage map is assigned.
 uniform sampler2D damage_map : hint_default_white;

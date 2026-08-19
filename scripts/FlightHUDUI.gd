@@ -9,6 +9,29 @@
 # - Bottom Right: Hull Integrity, Bio-Shield, Bio-Nanite Coagulation, Radiotrophic Absorption.
 # - Center: Dynamic Reticle, Target Locking Bracket, Lead Indicator, Exothermal Heat Gauge.
 # - Controls Banner: Keyboard & Mouse Flight Keybindings Hint Overlay.
+#
+# --- WHY THE HUD LOOKS THE WAY IT DOES ---
+# Per docs/DESIGN_DIRECTION.md §1 (Aesthetic Layer 1: Interface — Frutiger Aero /
+# Skeuomorphic Futurism), the HUD should feel like it was GROWN by the ship, not
+# bolted on. Glossy, translucent panels with depth and reflections — NOT flat
+# material design. Bioluminescent amber backlighting (#FFB347) shows through
+# translucent surfaces, a constant reminder that the ship is alive beneath the
+# clean interface layer. The HUD is the pilot's window into the organism's
+# vital signs: it must feel organic, warm, and alive, not like a sterile
+# glass cockpit. See DESIGN_DIRECTION.md §2 for the 12-color bioluminescent
+# palette used throughout the HUD elements.
+#
+# --- WHY THE HUD SHOWS THESE SPECIFIC METRICS ---
+# The HUD metrics map directly to the 5 closed-loop organ pipelines from
+# ORGAN_SYSTEMS.md §2, giving the pilot at-a-glance awareness of every
+# life-critical subsystem:
+#   - Bio-Plasma pipeline (§2.1) → fuel %, thrust, boost (top bar)
+#   - Hemolymph pipeline (§2.2) → heart rate, hemolymph pressure, oxygenation (bottom left)
+#   - Neural pipeline (§2.3) → neural sync rate (top bar)
+#   - Life Support pipeline (§2.4) → oxygenation yield (bottom left)
+#   - Exoskeleton pipeline (§2.5) → hull integrity, shield, nanite repair rate (bottom right)
+# This 1:1 mapping ensures the pilot's HUD reflects the actual biological
+# state of the ship, not an abstract game-health abstraction.
 # ==============================================================================
 
 @tool
@@ -20,20 +43,58 @@ signal inspect_organs_requested()
 
 @export_group("Targeting & Kinematics State")
 @export var current_speed_ms: float = 85.0
+## WHY 300 m/s: This is the HUD's SPEED DISPLAY SCALE, not the ship's actual
+## max speed. 300 m/s ≈ 1080 km/h, which covers the atmospheric flight regime
+## (reentry, approach, landing). The ship's space speed is far higher (see
+## DESIGN_DIRECTION.md §9: sublight up to 2,000 km/s), but during atmospheric
+## operations the HUD shows atmosphere-relevant scales so the speedometer
+## remains readable. The bar fills relative to this atmospheric-scale maximum.
 @export var max_speed_ms: float = 300.0
 @export var current_g_force: float = 1.0
 @export var altitude_m: float = 1420.0
 @export var bio_plasma_fuel_pct: float = 88.0
+## 98.4% — canonical neural sync rate (LORE.md §Biometric Telemetry: 95–99.9%
+## range; ORGAN_SYSTEMS.md §2.3: 98.4% synaptic coherence). This is the
+## pilot-to-ganglion neuro-link quality — how well the human pilot's intent
+## is reaching the ship's brain. Low sync = sluggish, unresponsive controls.
 @export var neural_sync_pct: float = 98.4
 
 @export_group("Biometric & Defense Metrics")
+## --- WHY these specific default values ---
+## Each default matches LORE.md §"Biometric Telemetry Specifications" or the
+## organ pipeline specs in ORGAN_SYSTEMS.md. These are HUD display defaults
+## shown before live telemetry arrives; the OrganTelemetry autoload overwrites
+## them at runtime via _on_telemetry_updated().
+##
+## 72.0 BPM is the PILOT's resting heart rate (human ~72 BPM), NOT the ship's
+## Peristaltic Heart Core (68 BPM, ORGAN_SYSTEMS.md §2.2). Both are displayed:
+## the pilot's BPM on the ECG oscilloscope, the ship's 68 BPM as the organ
+## pulse layer in the audio system. This distinction matters — the HUD shows
+## the pilot's physiological state alongside the ship's.
 @export var heart_rate_bpm: float = 72.0
+## 15.5 bar — mid-range of the canonical 12–18 bar hemolymph pressure range
+## (LORE.md §Biometric Telemetry Specifications). The Peristaltic Heart Core
+## (ORGAN_SYSTEMS.md §2.2) maintains this copper-hemocyanin hydraulic pressure.
 @export var hemolymph_pressure_bar: float = 15.5
+## 420 L/min O₂ — canonical output of the Photosynthetic Bio-Moss Carpet
+## (ORGAN_SYSTEMS.md §2.4, LORE.md §Biometric Telemetry Specifications lists
+## 250–650 L/min range; 420 is the nominal rated output).
 @export var oxygenation_yield_lpm: float = 420.0
+## Hull integrity % — maps to the Exoskeleton pipeline (ORGAN_SYSTEMS.md §2.5):
+## Chitinous Carapace Plates + Bio-Nanite Coagulation Bed. 100% = intact hull.
 @export var hull_integrity_pct: float = 100.0
+## Bio-shield % — maps to the Repulsion Shield Emitters (450 MW, ORGAN_SYSTEMS
+## §2.5). 100% = full deflection screen.
 @export var bio_shield_pct: float = 100.0
+## 1.2 m³/s — canonical nanite repair rate (ORGAN_SYSTEMS.md §2.5: Bio-Nanite
+## Coagulation Bed). LORE.md lists 0.8–2.5 m³/s range; 1.2 is nominal.
 @export var nanite_coagulation_m3s: float = 1.2
+## 45.0 Gy/hr — mid-range of the canonical 20–80 Gy/hr radiotrophic absorption
+## (LORE.md §Biometric Telemetry Specifications). This is the carapace's
+## radiation-to-energy conversion rate — the ship eating cosmic rays.
 @export var radiotrophic_abs_gy_hr: float = 45.0
+## Exothermal heat % — weapon system thermal state, driven by WeaponSystem
+## signals (not an organ pipeline metric; this is combat equipment heat).
 @export var exothermal_heat_pct: float = 24.0
 
 @export_group("No Man's Sky Flight Reticle & Tether")

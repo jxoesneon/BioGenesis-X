@@ -7,6 +7,25 @@
 # subdivided IcoSpheres. Implements multi-tier vector domain warping, planar
 # cleavage chipping, analytical parabolic crater excavation with raised rim lips,
 # and ridged multifractal geological crags.
+#
+# LORE CONNECTION:
+#   Asteroids are not just scenery — they are the Void-Fauna's food source.
+#   LORE.md states the Void-Fauna "harvested icy comets for hydrogen" and
+#   "grazed on asteroid mineral belts." The Chitinous Void Harvester archetype
+#   (LORE.md) is specifically designed as a "Mineral-processing dreadnought"
+#   that "crushes and refine[s] asteroid belt minerals."
+#
+#   The CARBONACEOUS_C_TYPE archetype's "radiotrophic bio-veins" are a direct
+#   lore connection: carbonaceous asteroids contain organic compounds and
+#   water ice — the exact materials the Void-Fauna's Ingestion Gizzard and
+#   Electrolysis Gland process into bio-plasma fuel (ORGAN_SYSTEMS.md
+#   pipeline 1). The bio-veins visible on these asteroids represent the
+#   Void-Fauna's radiotrophic cells leeching minerals and organic compounds
+#   from the asteroid surface — the asteroid is being slowly consumed.
+#
+#   Other archetypes (SILICATE, CONTACT_BINARY, RUBBLE, JAGGED) represent
+#   non-organic asteroids that are mined for raw minerals by the Chitinous
+#   Void Harvester's crushing mandibles.
 # ==============================================================================
 
 @tool

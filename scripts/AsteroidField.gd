@@ -13,6 +13,20 @@ var _cached_collision_shapes: Array[Shape3D] = []
 ## AsteroidField.gd
 ## Procedural 3D Asteroid Field Generator, Cosmic Biopunk Environment & Void-Fauna Spawns
 ## Part of BioGenesis-X space environment.
+##
+## LORE CONNECTION:
+##   Asteroid fields are the Void-Fauna's grazing grounds. LORE.md states
+##   they "grazed on asteroid mineral belts" and "harvested icy comets for
+##   hydrogen." The field contains both inert asteroids (mined by the
+##   Chitinous Void Harvester archetype) and Void-Fauna Drones — smaller
+##   organisms that feed on the asteroids' mineral content.
+##
+##   The Void-Fauna Drones orbiting the field (see _spawn_void_fauna_drones)
+##   are NOT bonded symbionts — they are wild Void-Fauna feeding on the
+##   asteroid belt. The player can observe them but cannot pilot them
+##   (they lack the neural complexity for the Covenant neuro-link).
+##   This creates a living environment: the asteroid field is not dead
+##   rock, it's an active feeding ground with organisms grazing.
 
 @export_group("Asteroid Field Setup")
 @export var asteroid_count: int = 60

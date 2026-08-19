@@ -6,6 +6,14 @@
 # engineered specifically for the living Void-Fauna starships of BioGenesis-X.
 #
 # AESTHETIC DIRECTIVE: CLEAN BIOPUNK (FRUTIGER AERO & MAJESTIC BIO-HARMONY)
+# WHY this palette: the audio must span the 5 aesthetic layers from
+# docs/DESIGN_DIRECTION.md §1. The cardiovascular thud, bioluminescent harps,
+# and leviathan vocal calls inhabit the Biology Layer (Bioluminescent Fantasy /
+# Seapunk) — the ship's alien organic interior. The glassy Frutiger Aero
+# micro-transients inhabit the Interface Layer (Skeuomorphic Futurism) — the
+# clean, friendly player-facing surfaces. By keeping these two sonic worlds
+# distinct yet layered, the soundscape reproduces Subnautica's core tension:
+# a comfort bubble of familiar tech floating inside alien biology.
 # - Sleek, luminous, hydrodynamic soundscapes (Subnautica Seamoth / Living Oceanic Leviathans).
 # - ZERO grotesque body-horror / wet gore. Replaced by vital, healthy, athletic biology:
 #   * Rhythmic cardiovascular thud (calm, powerful, resonant bio-engine).
@@ -42,8 +50,27 @@ extends Node
 @export_group("Audio Engine Setup")
 ## Sampling rate for procedural audio generation (Hz)
 ## 22050 is recommended for GDScript — 44100 causes buffer underruns with layered synthesis
+## WHY 22050 not 44100: GDScript AudioStreamGenerator processing has a per-frame
+## budget. At 22050 Hz with a 0.15s buffer, each fill processes ~3308 samples;
+## at 44100 Hz that doubles, exceeding the GDScript per-frame time budget on
+## mid-range hardware and causing audible underruns (xruns). 22050 Hz is
+## sufficient for the ship's organic sound palette — low-frequency drones,
+## peristaltic pulses, and bioluminescent textures — whose energy lives well
+## below the 11 kHz Nyquist limit. See docs/DESIGN_DIRECTION.md §4 "Audio
+## Design Rationale" for the procedural-synthesis justification (the ship is
+## alive, so its sounds must morph with organ state in real time — samples
+## cannot, so we synthesize, and synthesis must fit the frame budget).
 @export_range(22050.0, 96000.0, 100.0) var sample_rate: float = 22050.0
 ## Generator buffer length in seconds (lower values reduce latency)
+## WHY 0.15s: this is the latency-vs-CPU-load tradeoff. A shorter buffer means
+## less latency but more frequent (and thus more costly) fill calls per second;
+## a longer buffer means cheaper fills but audible input lag. 0.15s ≈ 150 ms
+## of end-to-end latency, which is acceptable for a ship simulator — this is
+## not a twitch shooter where 20 ms matters. 150 ms is below the threshold
+## where players perceive audio as "detached" from action (~200 ms), while
+## keeping fill frequency at ~6.7 Hz and giving GDScript enough headroom to
+## render the layered synthesis (pads, drones, heartbeat, environment) without
+## underruns.
 @export_range(0.02, 0.5, 0.01) var buffer_length: float = 0.15
 ## Master output volume attenuation (dB)
 @export_range(-80.0, 12.0, 0.5) var master_volume_db: float = 3.0
@@ -231,6 +258,17 @@ var _drone_anchor_phase: float = 0.0
 var _drone_anchor_freq: float = 73.42  # D2
 
 # --- 2. Cardiovascular & Heartbeat State ---
+# WHY these sounds exist: the cardiovascular "lub-dub" thud IS the Peristaltic
+# Heart Core's pump cycle from LORE.md's Hemolymph & Thermal Radiator System
+# pipeline (Peristaltic Heart Core @ 68 BPM → Hemolymph Atrium → Central
+# Aorta → Capillary Beds → Spiracle Gill Vents). The Void-Fauna's heart is a
+# peristaltic (wave-contraction) pump pushing copper-hemocyanin hemolymph, so
+# the synthesized thud renders that organ's actual mechanical rhythm rather
+# than a sampled human heartbeat. It is only audible below 40% hull health or
+# in stethoscope mode so that, in normal flight, the ship's calm vital signs
+# recede into the background — surfacing them under damage creates the
+# Subnautica-style dread of the biology layer breaking through the comfort
+# bubble (docs/DESIGN_DIRECTION.md §1 "Faction Aesthetic Layering").
 var _heart_timer: float = 0.0
 var _lub_active: bool = false
 var _lub_time: float = 0.0
@@ -301,6 +339,15 @@ var _sidechain_band_mid: float = 1.0  # 250 Hz - 4.5 kHz (ducked)
 var _sidechain_band_high: float = 1.0  # > 4.5 kHz (shepard risers)
 
 # --- 7. Oceanic VocAlien Formants (Majestic Oceanic Bio-Acoustics) ---
+# WHY these are the ship's own vocalizations, not ambient wildlife: per
+# LORE.md "Void-Fauna Biology", the Void-Fauna are not silent — they
+# communicate through deep-vacuum acoustic waves and evolved from aquatic
+# ancestors, so their vocal apparatus produces whale-like formant harmonics.
+# The "majestic oceanic leviathan vocal calls" rendered here are the bonded
+# ship expressing itself (alert, distress, greeting), giving the player an
+# emotional bond with a living organism rather than a machine. This is the
+# emotional core of the Biology aesthetic layer and the Covenant of Symbiosis
+# (LORE.md §"The Covenant of Symbiosis").
 var _creature_vocal_active: bool = false
 var _creature_vocal_time: float = 0.0
 var _creature_vocal_pitch: float = 85.0
@@ -1738,6 +1785,15 @@ func _fill_audio_buffer() -> void:
 
 		# ----------------------------------------------------------------------
 		# LAYER F: CRYSTALLINE BIOLUMINESCENT HARP ARPEGGIOS (additive harmonics)
+		# WHY "bioluminescent harps": the Void-Fauna communicate through
+		# bioluminescent pulses (LORE.md "Ganglion Core & Multispectral Eye
+		# Pods"; docs/DESIGN_DIRECTION.md §2 cyan = neural sync). The ship
+		# "sings" by emitting these pulses, and the audio system renders that
+		# biological light-signalling as crystalline harp tones — the Biology
+		# aesthetic layer (Bioluminescent Fantasy). Additive synthesis with
+		# 1/n harmonic decay mimics the inharmonic partials of a struck
+		# crystal / bell, the closest acoustic analogue to a bioluminescent
+		# flash. This is NOT ambient wildlife — it is the ship's own voice.
 		# Now uses 5-harmonic additive synthesis instead of single sine
 		# Menu theme: wider arpeggio envelope (slower attack, longer decay)
 		# Includes arpeggio variation engine (octave displacement + neighbor tones)

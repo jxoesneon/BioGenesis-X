@@ -5,6 +5,32 @@
 # Implements Lin-Shu Logarithmic Spiral Density Wave Galaxy Model,
 # Deterministic Sector Octrees, Harvard Stellar Classification (O/B/A/F/G/K/M),
 # and Titius-Bode Planetary Orbital Resonance Simulation.
+#
+# LORE CONNECTION:
+#   The Void-Fauna feed on stellar radiation (LORE.md "Immaculate Radiation
+#   Protection" — their carapace converts gamma/cosmic radiation to metabolic
+#   energy). This creates a direct gameplay relationship between stellar
+#   spectral class and Void-Fauna ecology:
+#   - O/B class stars (blue giants): Highest radiation flux — premium feeding
+#     grounds but dangerously hot. Only the most radiotrophic Void-Fauna
+#     can survive close proximity.
+#   - G class stars (Sol-type): Moderate radiation — the "sweet spot" for
+#     human-Void-Fauna symbiosis. Sol Sector is G-class, which is why
+#     humanity's first contact with Void-Fauna occurred here.
+#   - M class stars (red dwarfs): Low radiation — Void-Fauna can survive
+#     but must feed more efficiently. These systems have the densest
+#     Void-Fauna populations because competition for limited radiation
+#     drives evolutionary adaptation.
+#   - Neutron stars / black holes: Extreme radiation environments — only
+#     the most ancient Void-Fauna (Bio-Mechanical Hybrid faction) can
+#     approach these. The gravitational lensing around black holes is
+#     visually similar to the Wave Engine's spacetime distortion.
+#
+#   The galaxy's 50,000 LY radius and 4 spiral arms match the Milky Way's
+#   structure because the Deep-Vacuum Ecosystem (LORE.md) is specifically
+#   located "beyond the Heliosphere" — humanity's journey from Sol to the
+#   deep-vacuum region is a real interstellar distance that must be
+#   traversed (or jumped via HyperWave).
 # ==============================================================================
 
 @tool

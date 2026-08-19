@@ -5,6 +5,24 @@
 # Manages 3D cinematic camera paths, smooth Bezier interpolation, anamorphic
 # letterbox bars (2.39:1), depth-of-field blur, narrative subtitles, and audio
 # sync for in-game cutscenes and intro sequences.
+#
+# LORE CONNECTION:
+#   The intro cinematic tells the BioGenesis-X origin story in 4 beats:
+#   1. "28TH CENTURY — THE DEEP-VACUUM ECOSYSTEM" — establishes the setting
+#      (LORE.md "Overview: The Age of the Covenant").
+#   2. "THE COVENANT OF SYMBIOSIS HAS AWAKENED THE VOID-FAUNA" — the central
+#      event: humans bonded with Void-Fauna through bioengineering (LORE.md
+#      "The Triad Technology Architecture").
+#   3. "WAVE ENGINES ADAPTED FROM THE LEGACY MECHANICAL SHIPS" — the Wave
+#      Engine's origin: humanity's mechanical Alcubierre drive was adapted
+#      through the Void-Fauna's biology (LORE.md "The Wave Engine").
+#   4. "WELCOME TO BIOGENESIS-X" — the player enters the world.
+#
+#   The 18-second duration gives each beat ~4.5 seconds — long enough to
+#   read, short enough to not delay gameplay. The camera moves from a
+#   distant view (0, 8, 35) to a close-up (0, 1.5, 12), simulating the
+#   player's descent into the world — from cosmic overview to personal
+#   engagement with their ship.
 # ==============================================================================
 
 @tool

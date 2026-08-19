@@ -14,34 +14,91 @@ extends MeshInstance3D
 #   4. Multispectral Eye Pod Clusters
 #   5. Flank Vascular Conduits
 #   6. Articulated Thoracic Tentacles & Spines
+#
+# WHY these 6 structures: they are the visible effectors of the 5 closed-loop
+# organ pipelines from ORGAN_SYSTEMS.md §2:
+#   - Spine/Ribcage  → Exoskeleton & Nanite Defense (Chitinous Vertebrae Column)
+#   - Carapace Plates → Exoskeleton & Nanite Defense (Overlapping Carapace Plates)
+#   - Siphon Thrusters → Bio-Plasma Power & Propulsion (Siphon Vent Nozzles)
+#   - Eye Pods       → Nervous & Cyber-Synaptic (Multispectral Eye Pods)
+#   - Vascular Conduits → Hemolymph Circulation (Central Aorta / Flank Arteries)
+#   - Tentacles      → Nervous & Cyber-Synaptic (Biomechanical Muscle Tendons)
+# The Life Support pipeline (bio-moss carpet) is interior and rendered via the
+# interior_membrane shader rather than external hull geometry. Each structure's
+# biological inspiration maps to a taxonomic group in
+# docs/DESIGN_DIRECTION.md §3 (cephalopods→siphons/tentacles, arthropods→
+# carapace, vertebrates→spine, echinoderms→vascular).
 # ============================================================================
 
 @export_category("Bio-Ship Configuration")
+## WHY 14 segments: the Void-Fauna's body is segmented like a cephalopod
+## mantle or annelid body (LORE.md "Void-Fauna Biology"; the Apex Hive
+## Leviathan has 16 segments, the Interceptor fewer). 14 balances anatomical
+## detail (enough vertebrae/ribs to read as a living spine) against mesh
+## complexity — each segment spawns ribs, carapace plates, and vascular
+## conduits, so the vertex count scales linearly with this value.
 @export_range(4, 32, 1) var segments: int = 14:
 	set(val):
 		segments = max(4, val)
 		if Engine.is_editor_hint(): rebuild_ship_mesh()
 
+## WHY 18.0m: this is the Neuro-Spore Interceptor's canonical length (the
+## default archetype). The Apex Hive Leviathan is much larger (~50m+, per
+## LORE.md "16 body segments ... massive vascular conduits") and is scaled up
+## via the archetype morphology multipliers and the ship_config scale factor
+## at runtime. 18m keeps the default mesh performant in the editor.
 @export_range(5.0, 50.0, 0.5) var length: float = 18.0:
 	set(val):
 		length = max(1.0, abs(val))
 		if Engine.is_editor_hint(): rebuild_ship_mesh()
 
+## WHY 1.2 chitin_density: controls carapace plate overlap density (plate
+## count = segments × density). Higher = more overlapping plates = more
+## protective but heavier and more vertices. 1.2 is mid-range for a
+## combat-capable ship — the Chitinous Void Harvester uses 16 (full plate
+## coverage, LORE.md), while agile interceptors use less. 1.2 yields ~17
+## plates over 14 segments: visible scale overlap without crushing frame rate.
 @export_range(0.5, 3.0, 0.1) var chitin_density: float = 1.2:
 	set(val):
 		chitin_density = max(0.1, abs(val))
 		if Engine.is_editor_hint(): rebuild_ship_mesh()
 
+## Archetype selects the Void-Fauna body plan. Each value maps to a canonical
+## archetype in LORE.md §"The Void-Fauna Archetypes":
+## - "interceptor" = Neuro-Spore Interceptor (Vanguard-Class Strike Symbiont)
+## - "corvette"    = Abyssal Symbiont Frigate (Stealth Reconnaissance Vessel)
+## - "dreadnought" = Chitinous Void Harvester (Heavy Ore Mining Dreadnought)
+## - "leviathan"   = Apex Hive Leviathan (Titan-Class Habitat Carrier)
+## The archetype drives width/height multipliers, tentacle & thruster counts,
+## and morphology (see rebuild_ship_mesh archetype branch below). A fifth
+## canonical archetype, the Viral Colony Carrier, is handled via the
+## "carrier"/"colony"/"viral" string aliases in the morphology branch.
 @export_enum("interceptor", "corvette", "dreadnought", "leviathan") var archetype: String = "interceptor":
 	set(val):
 		archetype = val
 		if Engine.is_editor_hint(): rebuild_ship_mesh()
 
+## Bioluminescent emission color. WHY cyan default (#00CED1): per
+## docs/DESIGN_DIRECTION.md §2 "Bioluminescent Color Coding", cyan = healthy
+## operation / neural sync. The default Interceptor is a freshly-bonded,
+## healthy ship, so cyan is the canonical "all systems nominal" glow. Other
+## archetypes / ship states should override this with the canonical palette:
+## amber #FFB347 for bio-plasma, green #00FF7F for healing/nanites, magenta
+## #FF3E9D for warp/growth, red #FF2A2A for damage, etc. The emission color
+## drives the bioluminescence shader, thruster flame tint, and capillary
+## interior color — keeping all three in sync with one canonical hue.
 @export var bioluminescent_color: Color = Color(0.0, 0.95, 1.0, 1.0):
 	set(val):
 		bioluminescent_color = val
 		if Engine.is_editor_hint(): rebuild_ship_mesh()
 
+## Chitin carapace base albedo. WHY near-black green (#0F1A14): the Void-Fauna
+## carapace is a mineralized chitin-protein matrix (LORE.md "NURBS Chitin
+## Carapace") — dark to absorb radiation for radiotrophic conversion. The
+## deep green-black base lets the bioluminescent emission (above) read as
+## glowing veins against a dark organic canvas, matching the Biology
+## aesthetic layer's "deep darkness as canvas with saturated bioluminescence"
+## (docs/DESIGN_DIRECTION.md §1 layer 3).
 @export var chitin_base_color: Color = Color(0.06, 0.10, 0.08, 1.0):
 	set(val):
 		chitin_base_color = val

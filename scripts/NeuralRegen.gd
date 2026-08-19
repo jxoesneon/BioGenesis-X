@@ -15,6 +15,25 @@
 # The system is fully headless-safe: the compute shader and visual shader are
 # only instantiated when a RenderingDevice is present. In headless/test mode the
 # CPU-side regeneration logic still runs so all gameplay tests pass.
+#
+# --- Lore Connection -----------------------------------------------------------
+# This autoload implements the biological repair half of the **Exoskeleton &
+# Nanite Defense System** pipeline (ORGAN_SYSTEMS.md §2.5):
+#
+#   Chitinous Bone Vertebrae (STRUCT) → Overlapping Carapace Plates (DEFENSE)
+#     → Bio-Nanite Coagulation Bed (REPAIR) → Repulsion Shield Emitters (EFFECTOR)
+#
+# NeuralRegen owns the REPAIR and EFFECTOR stages:
+#   • Hull regeneration  ← Bio-Nanite Coagulation Bed (1.2 m³/s breach clotting).
+#     LORE.md "Bio-Nanite Repair Swarms": nanites carry lead, iron, and chitin
+#     to seal hull punctures via hyper-clotting.
+#   • Shield regeneration ← Repulsion Shield Emitters (450 MW deflection screen).
+#   • Organ healing       ← systemic recovery while the organism is at rest
+#     (analogous to a biological organism healing internal tissue during sleep).
+#
+# Visual feedback uses the **Green (#00FF7F)** bioluminescent color code from
+# DESIGN_DIRECTION.md §2 (healing / regeneration / nanites), with **Red
+# (#FF2A2A)** damage-flash accents on incoming hits.
 # ==============================================================================
 
 extends Node
@@ -37,18 +56,61 @@ signal compute_heal_step(completed: bool)
 # ------------------------------------------------------------------------------
 
 ## Base hull regeneration rate (hull points / second) at full organ health.
+## WHY: This is the gameplay-facing rate of the **Bio-Nanite Coagulation Bed**
+## (ORGAN_SYSTEMS.md §2.5, "1.2 m³/s Breach Clotting"). LORE.md describes
+## "Bio-Nanite Repair Swarms" that carry lead, iron, and chitin to seal hull
+## punctures via hyper-clotting. 1.5 HP/s is deliberately slow — biological
+## repair is gradual, not instant. A full 100→0→100 hull cycle takes ~67 s of
+## uninterrupted rest, making "disengage and recover" a tactical choice rather
+## than a free reset. Faster than organ healing (0.8) because the nanite bed is
+## a dedicated repair organ with its own 1.2 m³/s throughput budget.
 @export var hull_regen_rate: float = 1.5
 ## Base shield regeneration rate (shield points / second) when out of combat.
+## WHY: Mirrors the **Repulsion Shield Emitters** (450 MW, ORGAN_SYSTEMS.md
+## §2.5). Shields are an *active electromagnetic* defense, not biological
+## tissue — the emitters just need power, so recharge is fast (12 HP/s, 8× the
+## hull rate). A depleted shield refills in ~8 s, keeping the player in the
+## fight while the slower hull knitting continues underneath.
 @export var shield_regen_rate: float = 12.0
 ## Seconds after taking damage before shield regeneration resumes.
+## WHY: The shield emitters are capacitor-fed (ORGAN_SYSTEMS.md §2.5 shows a
+## "Capacitor Feed" between the nanite bed and the emitters). A hit discharges
+## the capacitor; 3 s is the biological recharge latency before the emitters
+## can re-form a stable deflection field. Shorter than the hull delay (5 s)
+## because electromagnetic re-energizing is faster than nanite clotting.
 @export var shield_regen_delay: float = 3.0
 ## Seconds after taking damage before hull regeneration resumes.
+## WHY: The Bio-Nanite Repair Swarms (LORE.md) must first *triage* a fresh
+## breach — converge on the wound, deposit chitin/iron/lead, and begin
+## hyper-clotting — before steady-state knitting can resume. 5 s models that
+## triage window. Longer than the shield delay (3 s) because biological
+## coagulation is inherently slower than capacitor recharge.
 @export var hull_regen_delay: float = 5.0
 ## Base organ healing rate (health points / second) while at rest.
+## WHY: Internal organs heal slower than the hull because the nanite bed
+## prioritizes external breaches (survival-critical hull integrity) over
+## internal tissue repair. 0.8 HP/s means a badly damaged organ (say, 40 HP
+## down) takes ~50 s of rest to recover — long enough that organ damage feels
+## consequential, short enough that a brief disengagement recovers it. This
+## mirrors real biology: surface wounds clot fast, deep tissue heals slow.
 @export var organ_heal_rate: float = 0.8
 ## Seconds of no damage before the ship is considered "at rest" for organ healing.
+## WHY: Organ healing only triggers at rest because the organism diverts
+## metabolic resources from repair to combat when under threat (the
+## Yerkes-Dodson efficiency curve in DESIGN_DIRECTION.md §5). 4 s is just past
+## the hull regen delay (5 s) so that a brief lull in combat doesn't start
+## organ healing prematurely — the ship must be genuinely safe, not just
+## between shots. This mirrors how real animals heal internal tissue during
+## sleep/recovery, not mid-fight-or-flight.
 @export var rest_threshold: float = 4.0
 ## Multiplier applied to all regen rates when organ health is low (0 = no regen).
+## WHY: A critically damaged organism can't heal at full speed — its
+## Bio-Nanite Bed is itself fed by the hemolymph circulatory system
+## (ORGAN_SYSTEMS.md §2.2). If organs are failing, nanite throughput drops.
+## We floor the multiplier at 0.25 (not 0) so a wounded ship is never *fully*
+## helpless — it can always crawl back, just slowly. This avoids a death
+## spiral where damage → slow regen → more damage → no regen, which would
+## feel punishing and un-fun. 0.25 keeps the bottom of the curve survivable.
 @export var min_organ_health_mult: float = 0.25
 ## Maximum hull integrity (mirrors FlightController hull ceiling).
 @export var max_hull: float = 100.0
@@ -82,6 +144,17 @@ var _organ_telemetry: Node = null
 
 const _COMPUTE_SHADER_PATH: String = "res://shaders/regen_compute.glsl"
 const _REGEN_SHADER_PATH: String = "res://shaders/bio_regen.gdshader"
+# WHY 64×64: This grid is the spatial resolution of the Gray-Scott healing
+# pattern. Too small (e.g. 32) and the reaction-diffusion patterns can't form
+# the rich, organic spot/stripe textures that make healing *look* biological
+# (see DESIGN_DIRECTION.md §7 "Why Reaction-Diffusion for Hull Healing" and
+# §4's Gray-Scott reference for bioluminescent hull patterns). Too large
+# (e.g. 128) and the GPU compute dispatch doubles in cost with no visible
+# benefit at typical ship-viewing distances. 64² = 4096 cells is the sweet
+# spot: enough resolution for emergent leopard-spot/coral-growth patterns,
+# cheap enough to simulate at 10 Hz on any Vulkan-capable GPU. The 8×8
+# workgroup tiling (see _run_compute_step) divides 64 cleanly into 8 groups
+# per axis.
 const _GRID_SIZE: int = 64  # 64x64 damage map grid
 
 var _compute_pipeline: RID = RID()
@@ -92,6 +165,16 @@ var _buffer_next: RID = RID()     # Next-frame damage map
 var _buffer_params: RID = RID()   # Simulation parameters
 var _compute_available: bool = false
 var _compute_step_accumulator: float = 0.0
+# WHY 10 Hz (0.1 s interval): Hull healing is a slow biological process — the
+# Bio-Nanite Coagulation Bed operates at 1.2 m³/s (ORGAN_SYSTEMS.md §2.5), and
+# the player perceives regeneration over seconds, not milliseconds. Running
+# the Gray-Scott simulation at 60 Hz would burn GPU cycles for zero perceptible
+# gain: the reaction-diffusion patterns evolve on a timescale of seconds, and
+# the visual shader (bio_regen.gdshader) interpolates intensity smoothly
+# between steps anyway. 10 Hz keeps the compute budget low while remaining
+# well above the flicker-fusion threshold for the visual pulse. This mirrors
+# the 22050 Hz audio philosophy (DESIGN_DIRECTION.md §8) — use the minimum
+# rate that serves the perceptual need, leaving GPU headroom for rendering.
 const _COMPUTE_STEP_INTERVAL: float = 0.1  # 10 Hz GPU sim updates
 
 # Visual regen shader material (available for external overlay application).
@@ -388,6 +471,37 @@ func _init_compute_shader() -> void:
 	var packed_data: PackedByteArray = _pack_map_to_bytes(_damage_map, _heal_map)
 	GPUComputeManager.update_buffer(_buffer_damage, 0, packed_data)
 	# Params: feed_rate, kill_rate, diffusion_rate, delta_time (16 bytes).
+	#
+	# WHY Gray-Scott reaction-diffusion for Void-Fauna healing:
+	# The Gray-Scott model is the *same mathematical process* that generates
+	# real biological pattern formation — leopard spots, coral growth fronts,
+	# bioluminescent markings on deep-sea organisms, biofilm self-assembly
+	# (DESIGN_DIRECTION.md §3 maps Biofilms → "reaction-diffusion patterns",
+	# §4 names Gray-Scott explicitly for "bioluminescent hull surface
+	# patterns", and §7 "Why Reaction-Diffusion for Hull Healing" states the
+	# Void-Fauna's hull healing "should look like biological pattern
+	# formation, not a simple 'damage value decreases' timer"). By simulating
+	# healing as a reaction-diffusion field, the damage map heals with
+	# emergent organic patterns — spots that grow and merge, fronts that
+	# ripple outward — matching the biopunk aesthetic.
+	#
+	# Parameter rationale (classic Gray-Scott "mitosis" / spot-formation
+	# regime, Pearson 1993):
+	#   feed_rate  = 0.055  — rate at which heal-chemical (V) is supplied to
+	#                         the tissue. Low enough that patterns persist
+	#                         rather than washing out; models the slow
+	#                         trickle of nanites from the Bio-Nanite Bed.
+	#   kill_rate  = 0.062  — rate at which damage (U) is consumed/removed.
+	#                         Slightly higher than feed, placing us in the
+	#                         spot-forming region of the F-K parameter space
+	#                         — healing appears as spreading clusters, not
+	#                         a uniform fade.
+	#   diffusion  = 1.0    — spatial spread rate (U and V diffuse equally).
+	#                         1.0 lets patterns form at the 64×64 grid scale
+	#                         without becoming grid-aliased.
+	#   delta_time = 0.1    — integration step, matching _COMPUTE_STEP_INTERVAL
+	#                         (10 Hz) so each dispatch advances the sim by
+	#                         one real-time tick.
 	var params: PackedFloat32Array = PackedFloat32Array([0.055, 0.062, 1.0, 0.1])
 	var params_bytes: PackedByteArray = params.to_byte_array()
 	# binding 2 is declared as `uniform SimParams` (std140) in the shader,

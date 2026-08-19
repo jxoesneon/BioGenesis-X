@@ -8,6 +8,27 @@
 # Streams gameplay elements (asteroids, enemies, anomalies, hazards) around
 # the player ship using a dual-scale chunk grid:
 #
+# LORE CONNECTION:
+#   The chunk streamer populates the Void-Fauna's ecosystem around the ship.
+#   - Asteroids: The Void-Fauna's feeding grounds (LORE.md — they "grazed on
+#     asteroid mineral belts"). The Chitinous Void Harvester archetype
+#     specifically processes these. Carbonaceous asteroids contain the
+#     organic compounds and water ice that the Ingestion Gizzard and
+#     Electrolysis Gland convert to bio-plasma fuel.
+#   - VoidFaunaDrones: Wild, unbonded Void-Fauna (not symbionts — they lack
+#     the neural complexity for the Covenant neuro-link). They are the
+#     local fauna of the deep-vacuum ecosystem, not enemies by default.
+#     Aggression is driven by SystemNoiseField — territorial disputes,
+#     mating competition, or predator-prey dynamics from LORE.md.
+#   - Anomalies/Hazards: Cosmic phenomena — radiation storms, gravitational
+#     distortions, debris fields. The Void-Fauna's radiotrophic carapace
+#     can feed on some of these; others are genuinely dangerous.
+#
+#   The dual-scale grid (1 AU far-field, 0.01 AU near-field) reflects the
+#   "space as ocean" design principle (docs/DESIGN_DIRECTION.md): far-field
+#   objects are like distant whale silhouettes (visible but not interactive),
+#   near-field objects are the coral reef you're swimming through.
+#
 #   FAR-FIELD chunks (1 AU = 149.6M km):
 #     - MultiMesh ONLY (no RigidBody3D, no physics)
 #     - Density from SystemNoiseField.sample_channel_region()

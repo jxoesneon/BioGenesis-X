@@ -1,14 +1,54 @@
+// ============================================================================
+// HYPERWAVE TRANSIT TUNNEL SHADER - BioGenesis-X
+// Pumilio Studios — Inter-System Wave Engine Jump Visual Effect
+// ============================================================================
+// During HyperWaveAutopilot inter-system jumps, the Wave Engine's biological
+// adaptation of the Void-Fauna's caudal siphon system creates a transient
+// spacetime conduit between star systems. Unlike the in-system Wave Engine
+// (wave_engine.gdshader) which depicts the Alcubierre metric as a warp plane,
+// the HyperWave tunnel depicts the visual experience of transit THROUGH that
+// conduit — the pilot sees the fabric of spacetime flowing past the ship as
+// energy bands, streaks, and refracted starlight.
+//
+// Visual design follows the Biology aesthetic layer (Bioluminescent Fantasy):
+//   - energy_color_1 (blue #1A80FF): Contraction energy ahead of the ship,
+//     matching the wave_engine.gdshader contraction_color. Represents spacetime
+//     compression — the destination being pulled toward the ship.
+//   - energy_color_2 (cyan #00E6FF): High-energy streaks — the bio-plasma
+//     resonating through the Void-Fauna's vascular conduit network at warp
+//     frequencies. Cyan is the canonical "healthy neural sync" color from
+//     the 12-color bioluminescent coding system (see docs/DESIGN_DIRECTION.md).
+//   - dark_matter_color (deep purple #03001A): The void between stars —
+//     space that hasn't been contracted or expanded yet. Purple maps to the
+//     "corruption/anomaly" color in bioluminescent coding, appropriate here
+//     because uncompressed interstellar space is alien and hostile to the
+//     Void-Fauna (they feed on stellar radiation, not empty void).
+//
+// The screen-space refraction (chromatic aberration on the background) depicts
+// gravitational lensing — light from the destination system is bent through
+// the warp conduit, arriving distorted and color-split before the ship exits.
+//
+// Lore reference: LORE.md "The Wave Engine" — the Void-Fauna's caudal siphon
+// system, originally evolved for plasma-jet locomotion, is resonantly tuned
+// to deform spacetime at specific bio-plasma frequencies.
+// ============================================================================
 shader_type spatial;
 render_mode unshaded, cull_disabled, blend_mix;
 
 uniform sampler2D screen_texture : hint_screen_texture, filter_linear_mipmap;
 
+// Contraction energy (blue) — spacetime compression ahead of ship
 uniform vec3 energy_color_1 : source_color = vec3(0.1, 0.5, 1.0);
+// Bio-plasma resonance (cyan) — neural sync color from bioluminescent coding
 uniform vec3 energy_color_2 : source_color = vec3(0.0, 0.9, 1.0);
+// Uncompressed void (deep purple) — hostile interstellar space between stars
 uniform vec3 dark_matter_color : source_color = vec3(0.01, 0.0, 0.1);
 
+// Forward scroll speed — how fast energy bands appear to flow past the ship
 uniform float scroll_speed : hint_range(0.1, 20.0) = 8.0;
+// Swirl speed — rotational turbulence in the warp conduit walls
 uniform float swirl_speed : hint_range(0.0, 5.0) = 1.5;
+// Overall intensity — scales emission for bloom post-processing
 uniform float intensity_multiplier : hint_range(0.1, 10.0) = 3.0;
 
 // Fast 2D Hash function
@@ -44,7 +84,11 @@ float fbm(vec2 p) {
 }
 
 void vertex() {
-    // Add a slight wobble to the tunnel walls
+    // The tunnel walls wobble because the warp conduit is biological, not
+    // mechanical — the Void-Fauna's vascular conduit network pulses and
+    // flexes as it channels bio-plasma at warp frequencies. A perfectly
+    // rigid tunnel would look mechanical; the wobble communicates that this
+    // is a living structure breathing around the ship.
     float wobble = sin(TIME * 5.0 + VERTEX.z * 0.1) * 0.5;
     float wobble2 = cos(TIME * 3.0 + VERTEX.y * 0.1) * 0.5;
     VERTEX.x += wobble;
@@ -78,10 +122,14 @@ void fragment() {
     // Fade the ends of the cylinder so it doesn't have hard cuts
     float edge_fade = smoothstep(0.0, 0.2, uv.y) * smoothstep(1.0, 0.8, uv.y);
     
-    // --- SPACE WARPING (Refraction) ---
-    // Distort the screen UV based on the flowing noise
+    // --- SPACE WARPING (Gravitational Lensing Refraction) ---
+    // The warp conduit bends light from the destination system. Light arrives
+    // distorted and color-split (chromatic aberration) because different
+    // wavelengths follow different geodesics through the warped spacetime.
+    // This is real gravitational lensing physics — the same effect seen around
+    // black holes, here applied to the Alcubierre conduit.
     vec2 screen_uv = SCREEN_UV;
-    float warp_strength = 0.15 * edge_fade; // High distortion
+    float warp_strength = 0.15 * edge_fade; // Strong lensing inside the conduit
     screen_uv.x += (n1 - 0.5) * warp_strength;
     screen_uv.y += (n2 - 0.5) * warp_strength;
     

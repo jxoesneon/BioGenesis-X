@@ -32,20 +32,59 @@ enum WaveState {
 
 @export_group("Unified Vessel Mass & Inertia")
 ## Total physical mass of the single unified bio-ship in kilograms.
+## 125 metric tons = a mid-sized Void-Fauna (Neuro-Spore Interceptor class).
+## The Apex Hive Leviathan (50 crew, 16 segments) would mass ~10x this;
+## the mass scales with ship volume per BioManager archetype specs.
+## Lore: ORGAN_SYSTEMS.md — the ship is a living organism with chitin
+## carapace, hemolymph, and organ pipelines, not a hollow metal frame.
 @export var vessel_mass_kg: float = 125000.0 ## 125 metric tons baseline
 ## Principal moments of inertia (Ix=Pitch, Iy=Yaw, Iz=Roll) in kg*m^2.
+## Iy > Ix because the Void-Fauna's body is elongated along the Z (forward)
+## axis — yaw rotation swings the long body, requiring more torque than pitch.
+## Iz < Ix, Iy because roll rotates around the narrowest axis (the ship is
+## wider than it is tall). These follow the ellipsoid inertia tensor formula
+## I = (1/5)m(b²+c²) for a uniform-density biological body.
 @export var moment_of_inertia: Vector3 = Vector3(450000.0, 520000.0, 220000.0)
 @export var center_of_mass_offset: Vector3 = Vector3.ZERO
 
 @export_group("Flight Physics (Forces & Torques)")
+## Forward thrust from the Peristaltic Hydro-Pulse Siphons (ORGAN_SYSTEMS.md
+## pipeline 1: Bio-Plasma Power & Propulsion). The Muscular Plasma Bladder
+## (140 Bar) forces bio-plasma through Siphon Vent Nozzles (1,700 kN canon
+## spec). 7.5 MN = ~4.4x the canonical 1,700 kN per-nozzle output, accounting
+## for multiple siphon vents firing in concert plus the bio-boost reserve.
 @export var forward_thrust_force: float = 7500000.0 ## 7.5 MN forward bio-plasma siphon force
+## Retro-thrust is lower than forward thrust because the caudal siphon system
+## is optimized for forward plasma ejection. Reverse thrust uses auxiliary
+## vent nozzles (not the primary siphon), producing ~56% of forward output.
 @export var reverse_thrust_force: float = 4200000.0 ## 4.2 MN retro-thrust force
+## Lateral maneuvering uses smaller RCS-style bio-plasma vents distributed
+## along the hull — not the main siphon. Lower than forward but higher than
+## reverse because lateral vents are paired (port + starboard) for balanced
+## strafing, while reverse relies on a single auxiliary vent.
 @export var strafe_thrust_force: float = 4800000.0  ## 4.8 MN lateral maneuvering force
+## Torque values reflect the Articulated Vertebral Ribs & Spines (LORE.md)
+## — the ship flexes its spinal column to pitch/yaw, using muscular
+## hydrostats rather than control surfaces. Roll uses the dorsal spines
+## as radiative cooling fins (also acting as ailerons), producing less
+## torque than pitch/yaw because the fin surface area is smaller.
 @export var pitch_torque: float = 1200000.0         ## 1.2 MN*m pitch control torque
 @export var yaw_torque: float = 1350000.0           ## 1.35 MN*m yaw control torque
 @export var roll_torque: float = 850000.0           ## 0.85 MN*m roll control torque
+## Bio-Boost overcharges the Muscular Plasma Bladder beyond its 140 Bar
+## operating pressure. 2.2x multiplier represents the maximum safe
+## overpressure before the bladder tissue risks rupture — the Void-Fauna
+## can sustain 2.2x for short bursts but not indefinitely (hence fuel drain).
 @export var boost_multiplier: float = 2.2
+## 500 km/s sublight cap: fast enough to cross a planet's SOI in seconds,
+## slow enough that planetary approach is deliberate. At 500 km/s, crossing
+## 1 AU takes ~333s (~5.5 min) — long enough to feel like travel, short
+## enough to not require the Wave Engine for in-system hops.
+## See docs/DESIGN_DIRECTION.md "Propulsion Scaling" for full rationale.
 @export var max_speed: float = 500000.0 ## 500 km/s — Newtonian combat & orbital maneuvering
+## 2,000 km/s boost: 4x sublight, for combat evasion and emergency dashes.
+## Capped at 2,000 km/s because beyond this, the bio-plasma siphon's exhaust
+## velocity exceeds the structural tolerance of the caudal vent nozzles.
 @export var max_boost_speed: float = 2000000.0 ## 2,000 km/s — boost for combat / evasion
 
 @export_group("Rotation & Sensitivity")
@@ -64,31 +103,106 @@ enum WaveState {
 @export var auto_follow_cone_degrees: float = 55.0
 
 @export_group("Bio-Hydro Pulse Dampening (Flight Assist)")
-## Bio-hydro pulse dampener simulates intelligent counter-vector retro-thrust.
-## When disabled (Flight Assist OFF), the ship preserves pure Newtonian drifting momentum in vacuum.
+## Bio-hydro pulse dampener simulates intelligent counter-vector retro-thrust
+## from the Peristaltic Hydro-Pulse Siphons (LORE.md). When the pilot releases
+## thrust, the Void-Fauna's siphon system automatically fires counter-pulses
+## to arrest drift — this is the biological equivalent of RCS thrusters.
+## When disabled (Flight Assist OFF), the ship preserves pure Newtonian
+## drifting momentum in vacuum — the Void-Fauna stops actively counteracting
+## drift, letting physics carry the ship.
 @export var dampening_enabled: bool = true
+## Linear dampening: how quickly the siphon system arrests translational
+## drift. 1.4/s = velocity decays to ~24% in 1 second. Slower than angular
+## because arresting linear momentum requires sustained counter-thrust,
+## while angular momentum can be countered with brief torque pulses.
 @export var linear_dampening_rate: float = 1.4
+## Angular dampening: how quickly the vertebral column arrests rotation.
+## 3.5/s = angular velocity decays to ~3% in 1 second. Faster than linear
+## because the spinal muscles can rapidly counter-rotate without needing
+## to expel bio-plasma mass.
 @export var angular_dampening_rate: float = 3.5
 
 @export_group("Bio-Boost Plasma Reserve")
+## Bio-plasma fuel is stored in the Muscular Plasma Bladder (140 Bar,
+## ORGAN_SYSTEMS.md pipeline 1). The 100-unit reserve represents the
+## bladder's capacity above the baseline operating pressure — boost and
+## Wave Engine draw from this surplus, which regenerates as the
+## Electrolysis Gland refines ingested comet ice into fresh plasma.
 @export var max_bio_plasma_fuel: float = 100.0
 @export var bio_plasma_fuel: float = 100.0
+## 25 units/sec boost drain: at full boost (2.2x thrust), the bladder
+## depletes in 4 seconds. This matches the Void-Fauna's biological limit —
+## the Electrolysis Gland can't produce plasma fast enough to sustain
+## overpressure, so boost is a sprint, not a marathon.
 @export var boost_drain_rate: float = 25.0
+## 12 units/sec recharge: the Electrolysis Gland's steady-state output.
+## Slower than drain (12 vs 25) because the gland electrolyzes comet ice
+## (H2O → H2 + O2) which requires time for chemical processing.
 @export var boost_recharge_rate: float = 12.0
+## 1.5s recharge delay: the bladder needs to stabilize pressure before
+## the gland can resume filling. This mirrors the biological refractory
+## period after sustained exertion.
 @export var recharge_delay: float = 1.5
 
 @export_group("Wave Engine (Alcubierre In-System Transit)")
 ## Alcubierre-style wave engine: contracts space ahead, expands space behind.
 ## The ship rides a spacetime wave inside a flat-region warp bubble.
+##
+## LORE: The Wave Engine is adapted from humanity's mechanical Alcubierre
+## drive but implemented through the Void-Fauna's biology. The caudal siphon
+## system, originally evolved for plasma-jet locomotion, is resonantly tuned
+## to deform spacetime at specific bio-plasma frequencies. The vascular
+## conduit network distributes the warp field evenly around the hull,
+## replacing the mechanical ring structures with a living membrane.
+## (LORE.md "The Wave Engine — Adaptation: The Biological Wave Engine")
 @export var wave_engine_enabled: bool = true
+## 2.0s spool-up: the Void-Fauna's siphon system needs time to reach the
+## resonant bio-plasma frequency that deforms spacetime. 2s is the biological
+## equivalent of a turbine spooling up — the Electrolysis Gland must ramp
+## plasma pressure to the warp threshold.
 @export var wave_charge_duration: float = 2.0 ## 2.0 second spool-up countdown
+## 200M km/s (~668c): chosen so that 1 AU takes ~0.75s, 50 AU (Kuiper Belt)
+## takes ~37s, and 400 AU (inner Oort) takes ~5.5 min. This makes the entire
+## solar system accessible within a single play session while preserving
+## the sense of scale. The speed is an effective FTL velocity — the ship
+## itself is stationary inside the bubble; spacetime is moving.
+## See docs/DESIGN_DIRECTION.md "Propulsion Scaling" for full rationale.
 @export var wave_max_speed: float = 200000000000.0 ## 200M km/s (~668c) — Alcubierre warp: 1 AU in 0.8s, 50 AU in 41s, 400 AU in 5.5min
+## 40M km/s² acceleration: the warp field builds over ~5s to full cruise.
+## This is the rate at which the Void-Fauna's siphon system can increase
+## spacetime deformation — not the ship's physical acceleration (which is
+## zero inside the bubble). The 5s ramp gives the pilot time to disengage
+## if something is wrong, and creates a sense of building speed.
 @export var wave_acceleration: float = 40000000000.0 ## 40M km/s^2 forward wave acceleration (reaches max in ~5s)
+## 5,000 km auto-drop: close enough to see the planet's full disc, far enough
+## to not spawn inside the atmosphere. At sublight (500 km/s), the final
+## 5,000 km approach takes ~10s — a brief "emergence" moment where the
+## pilot transitions from warp to normal space and orients toward the planet.
 @export var wave_safe_disengage_distance: float = 5000000.0 ## 5,000km auto-drop proximity distance
+## 3 units/sec fuel cost: the Wave Engine draws bio-plasma from the Muscular
+## Plasma Bladder to sustain the spacetime deformation. Much cheaper than
+## boost (25/sec) because the warp field is maintained by resonance, not
+## by raw plasma expenditure — the siphon system recycles most of the
+## plasma through the vascular conduit network.
 @export var wave_fuel_cost_per_sec: float = 3.0 ## Bio-plasma consumption rate
+## 108° FOV: wider than boost (98°) to enhance the sense of speed during
+## warp. The expanded FOV creates a tunnel-vision effect that communicates
+## "you are moving very fast" without requiring motion blur (which is
+## expensive and can cause motion sickness).
 @export var wave_fov: float = 108.0 ## Dynamic FOV expansion during wave cruise
 
 @export_group("Atmospheric Flight (Aerodynamics)")
+## LORE JUSTIFICATION: Void-Fauna evolved in molecular clouds, not atmospheres
+## (LORE.md "Evolutionary Origins"). However, their chitin carapace plates
+## form a naturally aerodynamic hull shape — the overlapping nacre layers
+## that deflect micro-meteorites also deflect atmospheric gas molecules.
+## The Articulated Vertebral Ribs provide a wing-like surface for lift.
+## These parameters are low compared to a dedicated aircraft because the
+## Void-Fauna's hull is optimized for vacuum, not atmosphere — atmospheric
+## flight is possible but inefficient, requiring thrust to compensate for
+## poor lift/drag. This creates deliberate gameplay tension: the player
+## can land on planets but must fly carefully in atmosphere.
+## See docs/DESIGN_DIRECTION.md "Why Newtonian 6-DOF" and AtmosphericFlightModel.gd.
 ## Wing reference area (m^2) used to scale aerodynamic lift forces.
 @export var wing_area: float = 15.0
 ## Cross-sectional reference area (m^2) used to scale aerodynamic drag forces.

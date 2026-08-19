@@ -64,6 +64,11 @@ const DEFAULTS: Dictionary = {
 		"fov": 75.0,                 # 60.0 - 110.0 (degrees)
 	},
 	"gameplay": {
+		# POI scan radius: 80 LY covers ~2 sectors (40 LY each). This is the
+		# Void-Fauna's multispectral eye pod detection range (LORE.md) — the
+		# ganglion core can detect stellar radiation signatures from nearby
+		# star systems. 80 LY balances usefulness (enough POIs to plan routes)
+		# with performance (scanning more systems is expensive).
 		"poi_scan_radius_ly": 80.0,  # 10.0 - 500.0 (light-years for nearby system POI scan)
 		"poi_max_indicators": 50,    # 0 - 200 (max POI markers to show, 0=unlimited)
 		"hud_opacity": 1.0,          # 0.3 - 1.0
@@ -76,11 +81,18 @@ const DEFAULTS: Dictionary = {
 		"damage_numbers": true,      # bool
 		"crosshair_style": 0,        # 0=Default, 1=Minimal, 2=Cross, 3=Circle
 		# --- Noise Map / Scanner Settings ---
+		# These settings control the ship's sensor display — the Void-Fauna's
+		# Multispectral Eye Pods (LORE.md) detect infrared, polarized starlight,
+		# and planetary EM fluctuations. The noise overlay renders this sensor
+		# data as a holographic projection around the ship.
 		"noise_overlay_opacity": 0.6,     # 0.1 - 1.0 (debug overlay plane opacity)
 		"noise_show_resources": true,     # bool (debug overlay channel visibility)
 		"noise_show_enemies": true,       # bool
 		"noise_show_anomalies": true,     # bool
 		"noise_show_hazards": true,       # bool
+		# Scanner range: 5 km is the tactical engagement range — far enough to
+		# detect asteroids and enemies before collision, close enough that the
+		# scanner feels like a short-range tactical tool, not an omniscient map.
 		"scanner_range_km": 5.0,          # 1.0 - 50.0 (in-game scanner radius in km)
 		"scanner_opacity": 0.7,           # 0.1 - 1.0 (scanner hologram opacity)
 	},

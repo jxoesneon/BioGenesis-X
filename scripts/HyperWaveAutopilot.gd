@@ -2,6 +2,19 @@
 class_name HyperWaveAutopilot
 extends Node
 
+## HyperWaveAutopilot.gd
+## Inter-system jump drive autopilot — orchestrates the full HyperWave jump
+## sequence: align → charge → transit → dropout → cooldown.
+##
+## WHY THIS EXISTS — LORE.md "The Wave Engine" + DESIGN_DIRECTION.md §9:
+## HyperWave is the inter-system jump drive, distinct from the in-system Wave
+## Engine supercruise. It uses the same biological adaptation (the Void-Fauna's
+## caudal siphon + vascular conduit network) but at much higher bio-plasma
+## resonance, creating a transient spacetime conduit between star systems
+## rather than a local warp bubble. Where the Wave Engine contracts/expands
+## space *around* the ship, HyperWave tears a conduit *between* stars — a
+## qualitatively different and far more energy-intensive maneuver.
+
 signal jump_sequence_started
 signal jump_sequence_finished(aborted: bool)
 signal jump_segment_started(target_name: String)
@@ -120,7 +133,13 @@ func _process(delta: float) -> void:
 					# Call the actual load function which replaces the environment
 					universe_manager.hyperjump_to_system(target_seed)
 					
-					# Calculate safe distance based on the star's visual size
+					# Calculate safe distance based on the star's visual size.
+					# rad_norm normalizes real star radius (km) against 8.5M km
+					# (roughly Sol-class) to a 0.001-1.0 range. star_visual_radius
+					# maps this to 800m (small red dwarf floor) up to 12000m
+					# (super-giant ceiling) -- the in-engine rendered size. The 4x
+					# safe_distance multiplier accounts for the star's corona and
+					# heat envelope, which extends well beyond the photosphere.
 					var sys_data = universe_manager.current_system_data
 					var rad_norm := clampf(sys_data.get("radius_km", 696340.0) / 8500000.0, 0.001, 1.0)
 					var star_visual_radius := 800.0 + rad_norm * 11200.0
@@ -132,6 +151,10 @@ func _process(delta: float) -> void:
 					
 					drop_end_pos = dir * safe_distance
 					drop_start_pos = dir * (safe_distance + 30000.0) # Start 30km back
+					# 30km gives the ship a runway to decelerate from warp into the new
+					# system -- the dropout phase eases the ship from drop_start to
+					# drop_end over 2 seconds (cubic ease-out), so the arrival feels
+					# like a controlled descent rather than an instant teleport.
 					
 					# Warp the ship back to the start pos for the new system
 					if flight_controller:
@@ -232,6 +255,10 @@ func _process_alignment(delta: float) -> void:
 		# Aligned
 		state = State.CHARGING
 		timer = 3.0 # 3 seconds charge up
+		# Why 3s (longer than the in-system Wave Engine's 2s charge):
+		# inter-system jumps require higher bio-plasma resonance -- the
+		# caudal siphon system must reach a higher frequency to tear a
+		# conduit between stars, not just a local warp bubble.
 		print("HyperWave Autopilot: Aligned. Charging HyperWave...")
 		
 		var snd_charge := _get_audio_synth()
@@ -241,6 +268,12 @@ func _process_alignment(delta: float) -> void:
 func _enter_transit() -> void:
 	state = State.TRANSIT
 	timer = 15.0 # 15 seconds transit time (Elite Dangerous style)
+	# Why 15s -- long enough for the player to experience the transit
+	# (not instantaneous, which would feel like a loading screen), short
+	# enough to not be boring. Elite Dangerous style because ED's 15s
+	# supercruise-to-jump transition is the genre benchmark. During this
+	# window the universe fade sphere hides the old system while the new
+	# system loads and the warp tunnel FX play.
 	system_loaded = false
 	var target_name := "System"
 	if route_names.size() > current_waypoint_index:
@@ -257,6 +290,11 @@ func _enter_transit() -> void:
 	if flight_controller:
 		universe_fade_sphere = MeshInstance3D.new()
 		var s_mesh := SphereMesh.new()
+		# 2500m radius -- large enough to enclose the ship and all nearby FX
+		# (warp tunnel, jump particles), small enough to not clip into
+		# distant geometry. The inverted (CULL_FRONT) sphere hides the old
+		# universe during the physical system swap so the player never sees
+		# the old stars pop out or the new stars pop in.
 		s_mesh.radius = 2500.0
 		s_mesh.height = 5000.0
 		universe_fade_sphere.mesh = s_mesh
@@ -286,6 +324,11 @@ func _enter_transit() -> void:
 	if flight_controller:
 		flash_light = OmniLight3D.new()
 		flash_light.light_color = Color(0.8, 0.9, 1.0)
+		# The flash represents the moment the spacetime conduit opens -- a
+		# burst of Cherenkov-like radiation from charged particles crossing
+		# the warp threshold. High energy (100) and moderate range (500m)
+		# because it is a brief event, not sustained illumination; the light
+		# decays to 0 via lerp in _process.
 		flash_light.light_energy = 100.0
 		flash_light.omni_range = 500.0
 		flight_controller.add_child(flash_light)
@@ -394,6 +437,10 @@ func _spawn_warp_tunnel() -> void:
 	
 	# Cylinder mesh for the tunnel
 	var cyl := CylinderMesh.new()
+	# 800m long tunnel surrounds the ship's forward view for the full
+	# transit; 25m radius is tight enough to feel enclosed (the ship is
+	# inside the conduit) but not claustrophobic. The length gives the
+	# star-streak particles enough travel distance to read as speed.
 	cyl.height = 800.0
 	cyl.top_radius = 25.0
 	cyl.bottom_radius = 25.0
@@ -421,6 +468,10 @@ func _spawn_warp_tunnel() -> void:
 		
 		# Add high-speed star streak particles
 		jump_particles = GPUParticles3D.new()
+		# 150 star-streak particles -- reduced from 300 for performance.
+		# 150 is sufficient for the speed-blur effect at these velocities;
+		# the long box mesh (40m Z) and high initial velocity (400-800 m/s)
+		# make each particle read as a distinct streak, so fewer are needed.
 		jump_particles.amount = 150
 		jump_particles.lifetime = 1.0
 		jump_particles.randomness = 0.5
@@ -464,6 +515,12 @@ func _spawn_spool_grid() -> void:
 	
 	spool_grid_mesh = MeshInstance3D.new()
 	var plane := PlaneMesh.new()
+	# 800m plane is larger than the WaveEngineFX plane (60m) because the
+	# HyperWave charge-up is a bigger event -- the grid represents the
+	# larger spacetime deformation needed for inter-system transit (a
+	# conduit between stars, not a local bubble). 48 subdivisions give
+	# the hyperwave_grid shader enough vertices to show the charge
+	# deformation building toward the jump threshold.
 	plane.size = Vector2(800.0, 800.0)
 	plane.subdivide_width = 48
 	plane.subdivide_depth = 48

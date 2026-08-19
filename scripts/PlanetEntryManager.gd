@@ -8,6 +8,29 @@
 # manages the full transition from orbital space flight to on-foot surface
 # exploration and back to orbit.
 #
+# LORE CONNECTION:
+#   The Void-Fauna are deep-vacuum organisms (LORE.md "Evolutionary Origins")
+#   — they evolved in molecular clouds, not on planets. So why does the player
+#   land on planets? Three reasons from the lore:
+#   1. COMET ICE HARVESTING: The Void-Fauna's Ingestion Gizzard harvests water
+#      and hydrogen from icy bodies (ORGAN_SYSTEMS.md pipeline 4). Planets with
+#      water oceans are rich refueling stops — the ship can ingest ocean water
+#      directly, processed through the Electrolysis Gland into bio-plasma fuel.
+#   2. RADIOTROPHIC FEEDING: The chitin carapace converts radiation to energy
+#      (LORE.md "Immaculate Radiation Protection"). Planets close to their star
+#      offer high radiation flux — the ship can "graze" on stellar radiation
+#      while in planetary orbit, replenishing its metabolic reserves.
+#   3. COVENANT MISSIONS: The Covenant of Symbiosis requires human pilots for
+#      navigational intent. Human missions often involve planetary exploration
+#      for resources, research, or contact with other life forms. The ship
+#      carries its crew to planets because the crew needs to go there.
+#
+#   The descent itself is biologically stressful for the Void-Fauna —
+#   atmospheric friction heats the carapace, gravity strains the vertebral
+#   column, and the ship's radiotrophic cells must work harder to process
+#   the higher radiation flux near a star. This is why descent has a
+#   dedicated state machine and audio soundscape (DescentAudioController).
+#
 # Designed to be added to the scene tree (e.g. as a child of the space-flight
 # scene root or registered as an autoload). All subsystems are resolved lazily
 # and gracefully degraded: if any subsystem class is unavailable, a warning is

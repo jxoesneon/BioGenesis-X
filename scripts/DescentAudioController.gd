@@ -7,6 +7,34 @@
 # continuous soundscape that evolves through:
 #   ORBITAL -> EXOSPHERE -> THERMOSPHERE -> TROPOSPHERE -> SURFACE -> UNDERWATER
 #
+# LORE CONNECTION:
+#   The Void-Fauna evolved in deep vacuum (LORE.md "Evolutionary Origins") —
+#   atmospheric descent is alien to them. The descent soundscape reflects this:
+#   - ORBITAL: The ship's own bio-plasma drone and the star's radiation hum
+#     (the Void-Fauna's native environment — radiotrophic feeding sounds).
+#   - EXOSPHERE: Faint atmospheric whisper — the ship's carapace begins
+#     interacting with gas molecules for the first time. The chitin plates
+#     resonate subtly, producing a high-frequency whisper.
+#   - THERMOSPHERE: Heating hum — friction heats the carapace. The Void-Fauna's
+#     radiotrophic cells absorb the thermal radiation, producing a low hum
+#     (the ship is literally eating the heat). Wind noise builds as the
+#     atmosphere thickens.
+#   - TROPOSPHERE: Full wind, creature calls — the ship enters a biosphere.
+#     Creature calls represent local fauna (not Void-Fauna — these are
+#   - SURFACE: Ground ambience — the ship's peristaltic heart (68 BPM) is
+#     now audible alongside the planet's own soundscape. The ship is
+#     foreign here; its biological sounds contrast with the environment.
+#   - UNDERWATER: Muffled everything, bubbles, pressure creaks — the chitin
+#     carapace creaks under hydrostatic pressure. Whale-song is a deliberate
+#     parallel: the Void-Fauna's deep-vacuum vocalizations sound like whale
+#     song because both evolved for long-distance communication in fluid
+#     media (vacuum ≈ ocean for acoustic purposes).
+#
+#   The "space as ocean" design principle (docs/DESIGN_DIRECTION.md) is why
+#   the underwater layer sounds similar to the orbital layer — the transition
+#   from vacuum to ocean is, acoustically, a change of medium, not a
+#   fundamental change of experience for the Void-Fauna.
+#
 # Responsibilities:
 # - Translates PlanetDescentController layer/state signals into audio layer
 #   changes (wind noise, heating hum, star-ambient fade, creature calls).

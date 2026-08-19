@@ -16,6 +16,27 @@
 #
 # All functions are PURE: deterministic from inputs, no side effects, no state.
 # FlightController will call these when the ship is within a planet's atmosphere.
+#
+# --- WHY DOES A DEEP-VACUUM ORGANISM HAVE AERODYNAMIC PROPERTIES? ---
+# Per LORE.md, the Void-Fauna evolved in molecular clouds and icy regolith
+# fields — not in planetary atmospheres. Their hull is optimized for vacuum,
+# not for atmospheric flight. So why can they fly in atmosphere at all?
+#
+# The answer lies in convergent form: the Void-Fauna's NURBS Chitin Carapace
+# plates (LORE.md §Biomechanical Framework) form a naturally aerodynamic hull.
+# The overlapping helicoidal nacre layers that deflect micro-meteorites in
+# vacuum also deflect atmospheric gas — the same smooth, low-drag surface
+# works in both media. Additionally, the Articulated Vertebral Ribs (LORE.md)
+# that provide structural integrity under high-G maneuvers double as stubby
+# wing-like lift surfaces when immersed in atmosphere.
+#
+# The result is a ship that CAN fly in atmosphere but is INEFFICIENT at it.
+# The hull is a body of revolution (like a submarine), not an airfoil. Lift
+# is modest; drag is significant. This creates deliberate gameplay tension:
+# the player CAN land on planets to explore, mine, or trade, but must fly
+# carefully — steep reentry angles cause aeroheating, high AoA causes stall,
+# and gas giants are effectively unsurvivable. The ship is a creature of the
+# void that tolerates atmosphere, not an atmospheric vehicle.
 # ==============================================================================
 
 class_name AtmosphericFlightModel
@@ -44,11 +65,30 @@ enum Archetype {
 	GAS_GIANT_JOVIAN, ## 5: Extremely dense - massive drag, turbulent, no landing.
 	GAS_GIANT_ICE,    ## 6: Dense, methane - high drag, storms.
 	RADIOTROPHIC_BIO  ## 7: Moderate, spore-filled - medium drag, bio-particles.
+	## WHY this archetype matters for flight: Per LORE.md, the Void-Fauna's
+	## radiotrophic carapace converts radiation into metabolic energy. On a
+	## RADIOTROPHIC_BIO planet, the ambient radiation flux is higher, so the
+	## carapace runs hotter — producing a mild thermal-lift-bubble effect
+	## (warmer hull surface reduces local air density, slightly lowering drag).
+	## The spore-filled atmosphere also adds particulate drag that a clean
+	## atmosphere would not. These effects are approximated in the archetype
+	## parameters below, not modeled as separate physics terms.
 }
 
 # ------------------------------------------------------------------------------
 # Physical Constants (SI Units)
 # ------------------------------------------------------------------------------
+## WHY Earth-standard values are used as constants for ALIEN planets:
+## AtmosphericFlightModel is a GENERIC physics model — it does not assume the
+## planet is Earth. It takes planet-specific atmospheric density, gravity, and
+## composition as INPUTS (via get_archetype_parameters()). The Earth-standard
+## constants below are fallback/reference values used for:
+##   - Normalization (heating reference, gravitational scaling)
+##   - The TERRAN_OCEANIC archetype (which IS Earth-like by design)
+##   - Unit consistency (all SI, all derived from the same ISA baseline)
+## Each archetype overrides these with its own rho0, scale height, and speed of
+## sound. The Earth values here are the calibration baseline, not an assumption
+## that all planets resemble Earth.
 ## Earth sea-level air density (kg/m^3) — International Standard Atmosphere base.
 const EARTH_SEA_LEVEL_DENSITY: float = 1.225
 ## Earth sea-level speed of sound (m/s) at 15 degC.
@@ -61,6 +101,22 @@ const STANDARD_GRAVITY: float = 9.80665
 # ------------------------------------------------------------------------------
 # Aerodynamic Coefficients (Bio-ship hull assumptions)
 # ------------------------------------------------------------------------------
+## WHY a bio-ship has these specific coefficients:
+## The Void-Fauna's hull is a body of revolution (like a submarine or a zeppelin
+## body), NOT an airfoil. Per LORE.md, the NURBS Chitin Carapace is smooth and
+## streamlined for micro-meteorite deflection in vacuum — it was never shaped
+## by atmospheric selection pressure. As a result:
+##   - Lift coefficients are LOW compared to a dedicated aircraft wing. The
+##     hull itself produces almost no lift; what little lift exists comes from
+##     the Articulated Vertebral Ribs acting as stubby, low-aspect-ratio wings.
+##   - Drag coefficients are moderate — the smooth nacre surface keeps skin
+##     friction low, but the bluff body form (not a streamlined airfoil)
+##     produces significant form/pressure drag.
+##   - The stall behavior is abrupt because the "wings" (ribs) are short and
+##     stubby — low aspect ratio wings stall harder and recover slower.
+## These coefficients model a creature that CAN survive atmospheric transit but
+## was never optimized for it — reinforcing the gameplay tension described in
+## the system header.
 ## Critical angle of attack (radians) beyond which the wing stalls (~15 degrees).
 const CRITICAL_AOA_RAD: float = deg_to_rad(15.0)
 ## Maximum lift coefficient at the critical angle of attack (pre-stall peak).
@@ -75,9 +131,17 @@ const STALL_DRAG_MULTIPLIER: float = 4.5
 const DRAG_DIVERGENCE_MACH: float = 0.82
 ## Maximum supersonic drag multiplier cap (prevents runaway forces).
 const MAX_SUPERSONIC_DRAG_MULT: float = 8.0
-## Reference wing area (m^2) for a 28m bio-ship leviathan.
+## Reference wing area (m^2) for a 28m bio-ship — Abyssal Symbiont Frigate or
+## Neuro-Spore Interceptor size class (NOT the Apex Hive Leviathan, which is
+## much larger and would have proportionally greater rib surface area).
+## This 78.0 m^2 is the projected area of the Articulated Vertebral Rib surfaces
+## (LORE.md), not a dedicated wing. The ribs are structural elements that happen
+## to provide lift in atmosphere — they are stubby, low-aspect-ratio surfaces.
 const REFERENCE_WING_AREA_M2: float = 78.0
-## Reference cross-sectional area (m^2) for drag computation.
+## Reference cross-sectional area (m^2) for drag computation — this is the
+## frontal area of the hull (the body-of-revolution silhouette seen head-on).
+## 31.2 m^2 for a 28m ship implies an average hull diameter of ~6.3m, consistent
+## with a streamlined but substantial bio-ship body.
 const REFERENCE_CROSS_SECTION_M2: float = 31.2
 ## Heating onset velocity threshold (m/s) below which aeroheating is negligible.
 const HEATING_VELOCITY_THRESHOLD: float = 120.0

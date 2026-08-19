@@ -8,6 +8,20 @@
 # interest). The actual planet meshes only render when you're close enough
 # to see them at real scale.
 #
+# WHY NOT MINIATURIZED REPLICAS:
+#   Miniaturized replicas (e.g. a 1m sphere representing a 6,371km planet)
+#   break down because they must be positioned relative to the ship. As the
+#   ship moves, the replica moves with it, creating the illusion that the
+#   planet is following the ship. This destroys the sense of astronomical
+#   scale — the core fantasy of BioGenesis-X.
+#
+#   The Elite Dangerous approach preserves scale: you see navigation markers
+#   (direction + distance + name) until you're close enough for the real
+#   planet mesh to render at actual size. This is why the Void-Fauna's
+#   Multispectral Eye Pods (LORE.md) detect stellar EM fluctuations — the
+#   ship senses distant bodies through instruments, not through a window.
+#   The HUD markers ARE the ship's sensor display.
+#
 # This approach matches Elite Dangerous: you don't see planet meshes from
 # across the system — you see navigation markers and target indicators.
 # ==============================================================================
