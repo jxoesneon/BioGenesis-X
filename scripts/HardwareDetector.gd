@@ -372,10 +372,14 @@ func _process(delta: float) -> void:
 			_current_resolution_scale * 100.0, avg_ms])
 
 func _apply_resolution_scale() -> void:
-	# Use Godot's stretch scale for resolution scaling
+	# Use Godot's content scale factor for UI resolution scaling
 	var tree: SceneTree = get_tree()
 	if tree and tree.root:
-		tree.root.content_scale_scale = Vector2(_current_resolution_scale, _current_resolution_scale)
+		tree.root.content_scale_factor = _current_resolution_scale
+	# Also set the 3D render scale on the viewport for render resolution scaling
+	var vp := get_viewport()
+	if vp:
+		vp.scaling_3d_scale = _current_resolution_scale
 
 # ==============================================================================
 # Public API
