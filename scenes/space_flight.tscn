@@ -22,6 +22,7 @@
 [ext_resource type="Texture2D" uid="uid://b35p7vpvmdcsb" path="res://addons/starlight/psf-textures/jwst.png" id="16_psftex"]
 [ext_resource type="Script" path="res://scripts/DialogueUI.gd" id="17_dialogueui"]
 [ext_resource type="Script" path="res://scripts/CovenantController.gd" id="18_covenant"]
+[ext_resource type="Script" path="res://scripts/PauseMenuUI.gd" id="19_pause"]
 
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_nebulasky"]
 shader = ExtResource("6_nebulasky")
@@ -330,3 +331,14 @@ script = ExtResource("17_dialogueui")
 
 [node name="CovenantController" type="Node" parent="."]
 script = ExtResource("18_covenant")
+
+[node name="PauseMenu" type="CanvasLayer" parent="."]
+
+[node name="PauseMenuUI" type="Control" parent="PauseMenu"]
+script = ExtResource("19_pause")
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2

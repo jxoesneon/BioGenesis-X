@@ -538,10 +538,17 @@ func _input(event: InputEvent) -> void:
 	
 	if event is InputEventKey and not event.echo and event.pressed:
 		if event.is_action_pressed("ui_pause"):
-			if Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
-				Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+			# PauseMenuUI (if present) handles ESC to toggle the pause menu.
+			# Only toggle mouse capture if no pause menu is in the scene.
+			var pause_menu: Node = get_node_or_null("../PauseMenu/PauseMenuUI")
+			if pause_menu and is_instance_valid(pause_menu):
+				# Let PauseMenuUI handle ESC — it manages mouse mode via toggle_pause()
+				pass
 			else:
-				Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+				if Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
+					Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+				else:
+					Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 		elif event.is_action_pressed("flight_dampening_toggle"):
 			dampening_enabled = not dampening_enabled
 			dampening_toggled.emit(dampening_enabled)

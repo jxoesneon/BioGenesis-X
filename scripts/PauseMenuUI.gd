@@ -135,7 +135,7 @@ func _draw() -> void:
 	var t: float = _animation_time
 
 	# 1. Dark vignette overlay — deeper at edges
-	var edge_fade: float = minf(sz.x, sz.y) * 0.45
+	var _edge_fade: float = minf(sz.x, sz.y) * 0.45
 	for i in range(6):
 		var alpha: float = 0.04 * (1.0 - float(i) / 6.0)
 		draw_rect(Rect2(0, 0, sz.x, sz.y), Color(0.0, 0.05, 0.03, alpha), true)
