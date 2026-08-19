@@ -145,11 +145,9 @@ func _physics_process(delta: float) -> void:
 
 # Edge detection for jump (Space) and swim-up/swim-down keys.
 func _input(event: InputEvent) -> void:
-	if event is InputEventKey:
-		var k: InputEventKey = event as InputEventKey
-		if not k.echo and k.pressed and k.keycode == KEY_SPACE:
-			_jump_requested = true
-			get_viewport().set_input_as_handled()
+	if event.is_action_pressed("onfoot_jump"):
+		_jump_requested = true
+		get_viewport().set_input_as_handled()
 
 # ------------------------------------------------------------------------------
 # Planet Configuration
@@ -216,7 +214,7 @@ func _process_ground_movement(delta: float) -> void:
 	var is_moving: bool = input_dir.length_squared() > 0.01
 
 	# Determine run state: Shift + moving + has stamina.
-	var wants_run: bool = is_moving and Input.is_key_pressed(KEY_SHIFT) and _stamina > 0.1 and not _is_crouching
+	var wants_run: bool = is_moving and Input.is_action_pressed("onfoot_run") and _stamina > 0.1 and not _is_crouching
 	if wants_run and not _is_running:
 		_is_running = true
 		started_running.emit()
@@ -224,7 +222,7 @@ func _process_ground_movement(delta: float) -> void:
 		_is_running = false
 
 	# Crouch handling (Ctrl).
-	_is_crouching = Input.is_key_pressed(KEY_CTRL) and is_on_floor()
+	_is_crouching = Input.is_action_pressed("onfoot_crouch") and is_on_floor()
 	var target_height: float = crouch_height if _is_crouching else stand_height
 	_apply_collision_height(target_height)
 
@@ -286,13 +284,13 @@ func _project_to_tangent(vec: Vector3) -> Vector3:
 
 func _get_move_input() -> Vector2:
 	var v: Vector2 = Vector2.ZERO
-	if Input.is_key_pressed(KEY_W) or Input.is_key_pressed(KEY_UP):
+	if Input.is_action_pressed("onfoot_forward"):
 		v.y += 1.0
-	if Input.is_key_pressed(KEY_S) or Input.is_key_pressed(KEY_DOWN):
+	if Input.is_action_pressed("onfoot_back"):
 		v.y -= 1.0
-	if Input.is_key_pressed(KEY_D) or Input.is_key_pressed(KEY_RIGHT):
+	if Input.is_action_pressed("onfoot_right"):
 		v.x += 1.0
-	if Input.is_key_pressed(KEY_A) or Input.is_key_pressed(KEY_LEFT):
+	if Input.is_action_pressed("onfoot_left"):
 		v.x -= 1.0
 	return v.normalized()
 
@@ -311,9 +309,9 @@ func _process_swimming(delta: float) -> void:
 	var input_dir: Vector2 = _get_move_input()
 	var cam_basis: Basis = _camera.global_transform.basis if _camera != null else global_transform.basis
 	var wish: Vector3 = (-cam_basis.z * input_dir.y + cam_basis.x * input_dir.x)
-	if Input.is_key_pressed(KEY_SPACE):
+	if Input.is_action_pressed("onfoot_jump"):
 		wish += _surface_normal
-	if Input.is_key_pressed(KEY_CTRL):
+	if Input.is_action_pressed("onfoot_crouch"):
 		wish -= _surface_normal
 	wish = wish.normalized()
 	velocity = velocity.move_toward(wish * swim_speed, acceleration * delta)

@@ -86,7 +86,7 @@ func _process(delta: float) -> void:
 		return
 		
 	# Manual abort handling (can abort at any intermediate star between transits, or during transit)
-	if Input.is_key_pressed(KEY_BACKSPACE) or Input.is_key_pressed(KEY_ESCAPE):
+	if Input.is_action_pressed("ui_hyperspace_abort"):
 		if state != State.DROPOUT and state != State.COOLDOWN:
 			_abort_sequence()
 			

@@ -46,6 +46,7 @@ QuestWeaverGlobal="*res://addons/quest_weaver/core/quest_weaver_global.gd"
 QuestWeaverServices="*res://addons/quest_weaver/core/quest_weaver_services.gd"
 QuestWeaverGameState="*res://addons/quest_weaver/core/quest_weaver_game_state.gd"
 QuestManager="*res://scripts/QuestManager.gd"
+KeymapManager="*res://scripts/KeymapManager.gd"
 DebugAPI="*uid://biopn6205fqoo"
 Juicee="*uid://b36fwfvmmv0xc"
 

@@ -305,7 +305,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 
 	# Skip key (TAB) toggles skip-to-next-choice mode
-	if event is InputEventKey and event.pressed and event.keycode == skip_key:
+	if event is InputEventKey and event.pressed and event.is_action_pressed("ui_skip_dialogue"):
 		toggle_skip()
 		get_viewport().set_input_as_handled()
 		return

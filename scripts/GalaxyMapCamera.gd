@@ -145,19 +145,19 @@ func _physics_process(delta: float):
 	# Handle Translations
 	if current_mode == CameraMode.FREE_FLY:
 		var input_dir := Vector2.ZERO
-		if Input.is_key_pressed(KEY_A): input_dir.x -= 1.0
-		if Input.is_key_pressed(KEY_D): input_dir.x += 1.0
-		if Input.is_key_pressed(KEY_W): input_dir.y += 1.0
-		if Input.is_key_pressed(KEY_S): input_dir.y -= 1.0
+		if Input.is_action_pressed("galmap_left"): input_dir.x -= 1.0
+		if Input.is_action_pressed("galmap_right"): input_dir.x += 1.0
+		if Input.is_action_pressed("galmap_forward"): input_dir.y += 1.0
+		if Input.is_action_pressed("galmap_back"): input_dir.y -= 1.0
 
 		var vertical := 0.0
-		if Input.is_key_pressed(KEY_E) or Input.is_key_pressed(KEY_SPACE):
+		if Input.is_action_pressed("galmap_zoom_in"):
 			vertical += 1.0
-		if Input.is_key_pressed(KEY_Q) or Input.is_key_pressed(KEY_CTRL):
+		if Input.is_action_pressed("galmap_zoom_out"):
 			vertical -= 1.0
 
 		var fly_speed := fly_speed_base
-		if Input.is_key_pressed(KEY_SHIFT):
+		if Input.is_action_pressed("galmap_fast"):
 			fly_speed *= 5.0
 
 		var move_dir := (right * input_dir.x + forward * input_dir.y + up * vertical).normalized()
@@ -196,7 +196,7 @@ func _handle_zoom_continuous(magnitude: float) -> void:
 	if current_mode == CameraMode.FREE_FLY:
 		var dist_to_center := global_position.length()
 		var zoom_step := maxf(fly_speed_base * 0.5, dist_to_center * 0.1) * zoom_amount * 0.3
-		if Input.is_key_pressed(KEY_SHIFT):
+		if Input.is_action_pressed("galmap_fast"):
 			zoom_step *= 5.0
 		target_position += forward * direction * zoom_step
 
@@ -227,7 +227,7 @@ func _handle_zoom(direction: float) -> void:
 		# so zoom feels consistent at any scale.
 		var dist_to_center := global_position.length()
 		var zoom_step := maxf(fly_speed_base * 0.5, dist_to_center * 0.1)
-		if Input.is_key_pressed(KEY_SHIFT):
+		if Input.is_action_pressed("galmap_fast"):
 			zoom_step *= 5.0
 		target_position += forward * direction * zoom_step
 

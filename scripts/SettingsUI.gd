@@ -353,6 +353,256 @@ func _populate_controls_section() -> void:
 	_add_checkbox(vbox, "Vibration Enabled", "controls", "vibration_enabled")
 	_add_slider(vbox, "Vibration Intensity", "controls", "vibration_intensity", 0.0, 1.0, 0.05, _format_percent)
 
+	# --- Keybindings (context-aware, with conflict detection) ---
+	_add_section_header(vbox, "Key Bindings")
+	var hint := Label.new()
+	hint.text = "Click a binding to rebind. Conflicts within the same context are highlighted in red.\nTAB in dialogue = skip to next choice."
+	hint.add_theme_color_override("font_color", COLOR_SUBTITLE)
+	hint.add_theme_font_size_override("font_size", 11)
+	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	hint.custom_minimum_size = Vector2(680, 0)
+	vbox.add_child(hint)
+
+	# Conflict warning banner (populated when conflicts are detected)
+	_conflict_warning = Label.new()
+	_conflict_warning.add_theme_color_override("font_color", Color(1.0, 0.3, 0.2))
+	_conflict_warning.add_theme_font_size_override("font_size", 12)
+	_conflict_warning.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_conflict_warning.custom_minimum_size = Vector2(680, 0)
+	_conflict_warning.hide()
+	vbox.add_child(_conflict_warning)
+
+	# Reset All button
+	var reset_row := HBoxContainer.new()
+	reset_row.add_theme_constant_override("separation", 12)
+	vbox.add_child(reset_row)
+	var reset_btn := _create_action_button("Reset All to Defaults", Color(1.0, 0.5, 0.2))
+	reset_btn.custom_minimum_size = Vector2(200, 32)
+	reset_btn.pressed.connect(_on_reset_keybindings)
+	reset_row.add_child(reset_btn)
+
+	# Build a binding row for every action in every context
+	if KeymapManager:
+		for ctx in KeymapManager.get_contexts():
+			_add_section_header(vbox, KeymapManager.get_context_label(ctx))
+			var actions := KeymapManager.get_actions_in_context(ctx)
+			for entry in actions:
+				_add_keybinding_row(vbox, entry.action, entry.label, entry.events, ctx)
+
+	# Initial conflict check
+	_refresh_conflict_warnings()
+
+
+# ------------------------------------------------------------------------------
+# Keybinding UI
+# ------------------------------------------------------------------------------
+
+## Currently action awaiting a key press for rebinding (empty string = none).
+var _rebinding_action: String = ""
+var _conflict_warning: Label = null
+## Map: action -> { "label": Label, "buttons": [Button], "row": HBoxContainer }
+var _binding_rows: Dictionary = {}
+
+func _add_keybinding_row(parent: VBoxContainer, action: String, label_text: String,
+		events: Array, context: String) -> void:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 8)
+	parent.add_child(row)
+
+	var label := Label.new()
+	label.text = label_text
+	label.custom_minimum_size = Vector2(280, 0)
+	label.add_theme_color_override("font_color", COLOR_LABEL)
+	label.add_theme_font_size_override("font_size", 13)
+	row.add_child(label)
+
+	# Create a button for each binding (up to 3 shown)
+	var buttons: Array[Button] = []
+	for i in range(mini(events.size(), 3)):
+		var btn := Button.new()
+		btn.custom_minimum_size = Vector2(100, 30)
+		btn.add_theme_font_size_override("font_size", 12)
+		btn.add_theme_color_override("font_color", Color(0.7, 1.0, 0.9))
+		btn.text = KeymapManager.event_to_string(events[i])
+		var event_ref: InputEvent = events[i]
+		btn.pressed.connect(_on_rebind_pressed.bind(action, event_ref, i, btn))
+		row.add_child(btn)
+		buttons.append(btn)
+
+	# "Add" button for additional bindings
+	var add_btn := Button.new()
+	add_btn.text = "+"
+	add_btn.custom_minimum_size = Vector2(32, 30)
+	add_btn.add_theme_font_size_override("font_size", 14)
+	add_btn.add_theme_color_override("font_color", COLOR_ACCENT_DEBUG)
+	add_btn.tooltip_text = "Add another key binding"
+	add_btn.pressed.connect(_on_add_binding_pressed.bind(action, btn_count := buttons.size()))
+	row.add_child(add_btn)
+
+	_binding_rows[action] = {
+		"label": label,
+		"buttons": buttons,
+		"row": row,
+		"context": context,
+	}
+
+
+func _on_rebind_pressed(action: String, _old_event: InputEvent, _slot: int, btn: Button) -> void:
+	_play_ui_click(true)
+	if _rebinding_action != "":
+		# Cancel previous rebind in progress
+		_cancel_rebind()
+	_rebinding_action = action
+	btn.text = "Press a key..."
+	btn.add_theme_color_override("font_color", Color(1.0, 0.85, 0.2))
+	# Grab focus so _input is captured
+	btn.grab_focus()
+	# Listen for the next input event
+	set_process_input(true)
+
+
+func _on_add_binding_pressed(action: String, _current_count: int) -> void:
+	_play_ui_click(true)
+	if _rebinding_action != "":
+		_cancel_rebind()
+	_rebinding_action = action
+	# We're adding a new binding, not replacing — track this with a flag
+	set_meta("adding_binding", true)
+	# Show prompt on the last button or add button
+	var row_info: Dictionary = _binding_rows.get(action, {})
+	if row_info.has("row"):
+		var row: HBoxContainer = row_info.row
+		# Find the "+" button and update its text
+		for child in row.get_children():
+			if child is Button and (child as Button).text == "+":
+				(child as Button).text = "Press a key..."
+				(child as Button).add_theme_color_override("font_color", Color(1.0, 0.85, 0.2))
+				break
+	set_process_input(true)
+
+
+func _input(event: InputEvent) -> void:
+	if _rebinding_action == "":
+		return
+	# Only capture key and mouse button events for rebinding
+	if not (event is InputEventKey or event is InputEventMouseButton):
+		return
+	if event is InputEventKey:
+		if not event.pressed or event.echo:
+			return
+		# Ignore modifier-only presses (wait for actual key)
+		if event.keycode in [KEY_CTRL, KEY_SHIFT, KEY_ALT, KEY_META]:
+			return
+	# For mouse buttons, only capture on press
+	if event is InputEventMouseButton and not event.pressed:
+		return
+
+	get_viewport().set_input_as_handled()
+	var action := _rebinding_action
+	var is_adding: bool = bool(get_meta("adding_binding", false))
+
+	# Check for conflicts within the same context
+	var conflicts: Array[String] = KeymapManager._find_conflicts_for_event(action, event)
+	if conflicts.size() > 0:
+		# Show conflict warning but still allow the rebind
+		_conflict_warning.text = "⚠ Conflict: %s is also bound to %s in the same context. Rebinding anyway — fix or reset." \
+			% [KeymapManager.event_to_string(event), ", ".join(conflicts)]
+		_conflict_warning.show()
+
+	# Perform the rebind
+	if is_adding:
+		KeymapManager.add_binding(action, event, true)
+		remove_meta("adding_binding")
+	else:
+		KeymapManager.rebind_action(action, event, true)
+
+	_rebinding_action = ""
+	set_process_input(false)
+	_refresh_binding_row(action)
+	_refresh_conflict_warnings()
+	_play_ui_click(true)
+
+
+func _cancel_rebind() -> void:
+	_rebinding_action = ""
+	set_process_input(false)
+	remove_meta("adding_binding")
+	# Refresh all rows to restore normal button text
+	for action in _binding_rows:
+		_refresh_binding_row(action)
+
+
+func _refresh_binding_row(action: String) -> void:
+	if not _binding_rows.has(action):
+		return
+	var row_info: Dictionary = _binding_rows[action]
+	var buttons: Array[Button] = row_info.buttons
+	if not KeymapManager or not InputMap.has_action(action):
+		return
+	var events: Array[InputEvent] = InputMap.action_get_events(action)
+	for i in range(buttons.size()):
+		if i < events.size():
+			buttons[i].text = KeymapManager.event_to_string(events[i])
+			buttons[i].visible = true
+			buttons[i].add_theme_color_override("font_color", Color(0.7, 1.0, 0.9))
+		else:
+			buttons[i].visible = false
+	# Show/hide add button based on count
+	var row: HBoxContainer = row_info.row
+	for child in row.get_children():
+		if child is Button:
+			var btn: Button = child as Button
+			if btn.text == "+" or btn.text.begins_with("Press"):
+				if events.size() < 3:
+					btn.text = "+"
+					btn.add_theme_color_override("font_color", COLOR_ACCENT_DEBUG)
+					btn.visible = true
+				else:
+					btn.visible = false
+
+
+func _refresh_conflict_warnings() -> void:
+	if not KeymapManager:
+		return
+	var all_conflicts: Array[Dictionary] = KeymapManager.find_all_conflicts()
+	if all_conflicts.is_empty():
+		_conflict_warning.hide()
+		# Clear any red highlighting on labels
+		for action in _binding_rows:
+			var row_info: Dictionary = _binding_rows[action]
+			var label: Label = row_info.label
+			label.add_theme_color_override("font_color", COLOR_LABEL)
+		return
+	# Build warning text
+	var parts: Array[String] = []
+	for c in all_conflicts:
+		parts.append("%s: %s bound to %s" \
+			% [KeymapManager.get_context_label(c.context), c.event_label, ", ".join(c.actions)])
+	_conflict_warning.text = "⚠ CONFLICTS DETECTED:\n" + "\n".join(parts)
+	_conflict_warning.show()
+	# Highlight conflicting actions in red
+	var conflicted_actions: Dictionary = {}
+	for c in all_conflicts:
+		for act in c.actions:
+			conflicted_actions[act] = true
+	for action in _binding_rows:
+		var row_info: Dictionary = _binding_rows[action]
+		var label: Label = row_info.label
+		if conflicted_actions.has(action):
+			label.add_theme_color_override("font_color", Color(1.0, 0.3, 0.2))
+		else:
+			label.add_theme_color_override("font_color", COLOR_LABEL)
+
+
+func _on_reset_keybindings() -> void:
+	_play_ui_click(true)
+	if KeymapManager:
+		KeymapManager.reset_all()
+	# Refresh all rows
+	for action in _binding_rows:
+		_refresh_binding_row(action)
+	_refresh_conflict_warnings()
+
 # ------------------------------------------------------------------------------
 # ACCESSIBILITY Section
 # ------------------------------------------------------------------------------

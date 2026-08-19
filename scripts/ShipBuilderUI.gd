@@ -663,18 +663,18 @@ func _handle_orbit_input(event: InputEvent) -> void:
 			idle_interaction_timer = 0.0
 
 	elif event is InputEventKey and event.pressed and not event.echo:
-		if event.keycode == KEY_ESCAPE:
+		if event.is_action_pressed("ui_ship_builder_close"):
 			_on_back_to_main_menu_pressed()
-		elif event.keycode == KEY_LEFT or event.keycode == KEY_A:
+		elif event.is_action_pressed("galmap_left"):
 			orbit_yaw += 0.12
 			idle_interaction_timer = 0.0
-		elif event.keycode == KEY_RIGHT or event.keycode == KEY_D:
+		elif event.is_action_pressed("galmap_right"):
 			orbit_yaw -= 0.12
 			idle_interaction_timer = 0.0
-		elif event.keycode == KEY_UP or event.keycode == KEY_W:
+		elif event.is_action_pressed("galmap_forward"):
 			orbit_pitch = clampf(orbit_pitch + 0.12, -1.35, 1.35)
 			idle_interaction_timer = 0.0
-		elif event.keycode == KEY_DOWN or event.keycode == KEY_S:
+		elif event.is_action_pressed("galmap_back"):
 			orbit_pitch = clampf(orbit_pitch - 0.12, -1.35, 1.35)
 			idle_interaction_timer = 0.0
 

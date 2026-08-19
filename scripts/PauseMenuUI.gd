@@ -98,7 +98,7 @@ func _ready() -> void:
 	panel_vbox.add_child(btn_quit)
 
 func _input(event: InputEvent) -> void:
-	if event.is_action_pressed("ui_cancel") or (event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE):
+	if event.is_action_pressed("ui_pause"):
 		toggle_pause()
 
 var _tree_ref: SceneTree = null

@@ -537,17 +537,17 @@ func _input(event: InputEvent) -> void:
 			Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	
 	if event is InputEventKey and not event.echo and event.pressed:
-		if event.keycode == KEY_ESCAPE:
+		if event.is_action_pressed("ui_pause"):
 			if Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 				Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 			else:
 				Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
-		elif event.keycode == KEY_Z:
+		elif event.is_action_pressed("flight_dampening_toggle"):
 			dampening_enabled = not dampening_enabled
 			dampening_toggled.emit(dampening_enabled)
-		elif event.keycode == KEY_V or event.keycode == KEY_C:
+		elif event.is_action_pressed("flight_camera_toggle"):
 			toggle_camera_mode()
-		elif event.keycode == KEY_F3:
+		elif event.is_action_pressed("flight_collision_debug"):
 			toggle_collision_debug()
 
 func _process(delta: float) -> void:
@@ -657,8 +657,8 @@ func _handle_wave_engine(delta: float) -> void:
 		return
 
 	# Wave Engine Trigger: Holding Space (when pressing W or holding Shift+Space) or J key
-	var wave_input := simulated_wave or Input.is_key_pressed(KEY_J) or (Input.is_key_pressed(KEY_SPACE) and (Input.is_key_pressed(KEY_SHIFT) or Input.is_key_pressed(KEY_W)))
-	var brake_input := Input.is_key_pressed(KEY_S) or Input.is_key_pressed(KEY_K)
+	var wave_input := simulated_wave or Input.is_action_pressed("flight_wave_engine") or (Input.is_action_pressed("flight_up") and (Input.is_action_pressed("flight_boost") or Input.is_action_pressed("flight_forward")))
+	var brake_input := Input.is_action_pressed("flight_reverse")
 
 	if wave_state == WaveState.OFF:
 		if wave_input and bio_plasma_fuel > 10.0:
@@ -1027,23 +1027,23 @@ func _handle_rotation(delta: float) -> void:
 		# (Damping now handled in _process for render-rate smoothing)
 
 	# Keyboard Pitch (Arrow keys)
-	if Input.is_key_pressed(KEY_UP):
+	if Input.is_action_pressed("flight_pitch_up"):
 		pitch_input += 1.0
-	if Input.is_key_pressed(KEY_DOWN):
+	if Input.is_action_pressed("flight_pitch_down"):
 		pitch_input -= 1.0
 
 	# Keyboard Yaw / Steering (A / D or Left / Right Arrow keys)
-	if Input.is_key_pressed(KEY_LEFT) or Input.is_key_pressed(KEY_A):
+	if Input.is_action_pressed("flight_yaw_left"):
 		yaw_input += 1.0
-	if Input.is_key_pressed(KEY_RIGHT) or Input.is_key_pressed(KEY_D):
+	if Input.is_action_pressed("flight_yaw_right"):
 		yaw_input -= 1.0
 
 	# Keyboard Manual Roll controls (Q / E)
 	var manual_roll: bool = false
-	if Input.is_key_pressed(KEY_Q):
+	if Input.is_action_pressed("flight_roll_left"):
 		roll_input += 1.0
 		manual_roll = true
-	if Input.is_key_pressed(KEY_E):
+	if Input.is_action_pressed("flight_roll_right"):
 		roll_input -= 1.0
 		manual_roll = true
 
@@ -1065,7 +1065,7 @@ func _handle_rotation(delta: float) -> void:
 
 	# Starship Combat Auto-Follow (Holding RMB or F or holding S with combat target nearby)
 	if combat_auto_follow_enabled:
-		var is_tracking := Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT) or Input.is_key_pressed(KEY_F)
+		var is_tracking := Input.is_action_pressed("flight_combat_track")
 		if is_tracking:
 			var tracking_torques := _calculate_auto_follow_torques()
 			pitch_input += tracking_torques.x * auto_follow_strength
@@ -1134,21 +1134,21 @@ func _handle_thrust(delta: float) -> void:
 	var thrust_dir: Vector3 = Vector3.ZERO
 
 	# No Man's Sky Forward Throttle (W) & Reverse Brake / Siphons (S)
-	if Input.is_key_pressed(KEY_W) or Input.is_key_pressed(KEY_I) or Input.is_key_pressed(KEY_KP_8):
+	if Input.is_action_pressed("flight_forward"):
 		thrust_dir.z -= 1.0
-	if Input.is_key_pressed(KEY_S) or Input.is_key_pressed(KEY_K) or Input.is_key_pressed(KEY_KP_2):
+	if Input.is_action_pressed("flight_reverse"):
 		thrust_dir.z += 1.0
 
 	# Horizontal Strafe (J / L or Numpad 4/6)
-	if Input.is_key_pressed(KEY_J) or Input.is_key_pressed(KEY_KP_4):
+	if Input.is_action_pressed("flight_strafe_left"):
 		thrust_dir.x -= 1.0
-	if Input.is_key_pressed(KEY_L) or Input.is_key_pressed(KEY_KP_6):
+	if Input.is_action_pressed("flight_strafe_right"):
 		thrust_dir.x += 1.0
 
 	# Vertical Maneuver Siphons (SPACE / R for Ascend, CTRL / C / F for Descend)
-	if Input.is_key_pressed(KEY_SPACE) or Input.is_key_pressed(KEY_R):
+	if Input.is_action_pressed("flight_up"):
 		thrust_dir.y += 1.0
-	if Input.is_key_pressed(KEY_CTRL) or Input.is_key_pressed(KEY_F):
+	if Input.is_action_pressed("flight_down"):
 		thrust_dir.y -= 1.0
 
 	# Apply simulated thrust vector
@@ -1304,7 +1304,7 @@ func _handle_dampening(delta: float) -> void:
 
 ## Manages exothermal siphon surge (Bio-Boost) and fuel reserve.
 func _handle_bio_boost(delta: float) -> void:
-	var boost_requested := simulated_boost or Input.is_key_pressed(KEY_SHIFT) or Input.is_key_pressed(KEY_TAB)
+	var boost_requested := simulated_boost or Input.is_action_pressed("flight_boost")
 	
 	if boost_requested and bio_plasma_fuel > 0.0:
 		if not is_boosting:
@@ -1846,7 +1846,7 @@ func _handle_atmospheric_physics(delta: float) -> void:
 	if has_controller and _planet_descent_controller.has_method("notify_takeoff_thrust"):
 		# PlanetDescentController.DescentState.LANDED == 5
 		if descent_state == 5:
-			var up_thrust: bool = Input.is_key_pressed(KEY_SPACE) or Input.is_key_pressed(KEY_R) or simulated_thrust.y > 0.1
+			var up_thrust: bool = Input.is_action_pressed("flight_up") or simulated_thrust.y > 0.1
 			if up_thrust:
 				_planet_descent_controller.notify_takeoff_thrust(1.0)
 	# Determine whether the ship is in a meaningful atmospheric layer.

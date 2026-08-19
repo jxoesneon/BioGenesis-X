@@ -157,7 +157,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	if not _is_playing:
 		return
 	if event is InputEventKey and event.pressed:
-		if event.keycode == KEY_ESCAPE or event.keycode == KEY_SPACE or event.keycode == KEY_ENTER:
+		if event.is_action_pressed("ui_skip_cinematic"):
 			stop_cinematic()
 
 func _process(delta: float) -> void:

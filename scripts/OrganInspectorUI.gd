@@ -530,7 +530,7 @@ func _on_ship_builder_pressed() -> void:
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
-		if event.keycode == KEY_ESCAPE:
+		if event.is_action_pressed("ui_organ_inspector_close"):
 			_on_back_pressed()
 
 # ------------------------------------------------------------------------------

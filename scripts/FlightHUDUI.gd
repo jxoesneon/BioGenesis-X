@@ -407,7 +407,7 @@ func _input(event: InputEvent) -> void:
 	# exist we consume the event so it does not also trigger the organ inspector
 	# in _unhandled_input; with no targets present we let it fall through.
 	if event is InputEventKey and event.pressed and not event.echo:
-		if event.keycode == KEY_TAB:
+		if event.is_action_pressed("ui_scanner_toggle"):
 			_refresh_target_list_cache()
 			if not _target_list_cache.is_empty():
 				_cycle_target()
@@ -801,10 +801,10 @@ func _change_scene(path: String) -> void:
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
-		if event.keycode == KEY_TAB:
+		if event.is_action_pressed("ui_scanner_toggle"):
 			inspect_organs_requested.emit()
 			_change_scene("res://scenes/organ_inspector.tscn")
-		elif event.keycode == KEY_M:
+		elif event.is_action_pressed("ui_galaxymap_toggle"):
 			_toggle_galaxy_map()
 
 func _toggle_galaxy_map() -> void:

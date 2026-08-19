@@ -232,30 +232,30 @@ func cycle_weapon_next() -> void:
 func _handle_input() -> void:
 	# Weapon Switching Hotkeys (1-6 select weapons directly)
 	if _key_switch_debounce <= 0.0:
-		if Input.is_key_pressed(KEY_1):
+		if Input.is_action_pressed("weapon_slot_1"):
 			select_weapon(WeaponType.DISRUPTOR)
 			_key_switch_debounce = 0.25
-		elif Input.is_key_pressed(KEY_2):
+		elif Input.is_action_pressed("weapon_slot_2"):
 			select_weapon(WeaponType.PLASMA_MISSILES)
 			_key_switch_debounce = 0.25
-		elif Input.is_key_pressed(KEY_3):
+		elif Input.is_action_pressed("weapon_slot_3"):
 			select_weapon(WeaponType.SPORE_CLOUD)
 			_key_switch_debounce = 0.25
-		elif Input.is_key_pressed(KEY_4) or Input.is_key_pressed(KEY_X):
+		elif Input.is_action_pressed("weapon_slot_4"):
 			select_weapon(WeaponType.EMP_BURST)
 			_key_switch_debounce = 0.25
-		elif Input.is_key_pressed(KEY_5) or Input.is_key_pressed(KEY_B):
+		elif Input.is_action_pressed("weapon_slot_5"):
 			select_weapon(WeaponType.BEAM_EMITTER)
 			_key_switch_debounce = 0.25
-		elif Input.is_key_pressed(KEY_6) or Input.is_key_pressed(KEY_M):
+		elif Input.is_action_pressed("weapon_slot_6"):
 			select_weapon(WeaponType.MINE_DEPLOYER)
 			_key_switch_debounce = 0.25
-		elif Input.is_key_pressed(KEY_G):
+		elif Input.is_action_pressed("weapon_slot_next"):
 			cycle_weapon_next()
 			_key_switch_debounce = 0.25
 
 	# Primary Fire (Fires selected weapon). Beam is handled in _update_beam.
-	if Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) or Input.is_key_pressed(KEY_SPACE):
+	if Input.is_action_pressed("weapon_fire"):
 		match selected_weapon:
 			WeaponType.DISRUPTOR:
 				fire_primary()
@@ -271,7 +271,7 @@ func _handle_input() -> void:
 				fire_mine()
 
 	# Secondary Fire (Always available shortcut for Spore Cloud)
-	if Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT) or Input.is_key_pressed(KEY_C):
+	if Input.is_action_pressed("weapon_fire_secondary"):
 		fire_secondary()
 
 
@@ -488,7 +488,7 @@ func fire_mine() -> bool:
 ## Per-frame beam control: ticks damage/heat on beam_tick_interval while fire is held.
 func _update_beam(delta: float) -> void:
 	var want_fire: bool = (selected_weapon == WeaponType.BEAM_EMITTER) and \
-		(Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) or Input.is_key_pressed(KEY_SPACE)) and \
+		(Input.is_action_pressed("weapon_fire")) and \
 		not is_overheated
 
 	if not want_fire:
