@@ -119,7 +119,7 @@ func _build_registry() -> void:
 		_key(KEY_SHIFT), _key(KEY_TAB),
 	])
 	_add("flight_wave_engine", "Wave Engine Jump", CONTEXT_FLIGHT, [
-		_key(KEY_J),
+		_key(KEY_B),
 	])
 	_add("flight_dampening_toggle", "Toggle Inertial Dampeners", CONTEXT_FLIGHT, [
 		_key(KEY_Z),
@@ -128,7 +128,7 @@ func _build_registry() -> void:
 		_key(KEY_V), _key(KEY_C),
 	])
 	_add("flight_combat_track", "Combat Auto-Follow", CONTEXT_FLIGHT, [
-		_key(KEY_F), _mouse(MOUSE_BUTTON_RIGHT),
+		_key(KEY_T), _mouse(MOUSE_BUTTON_RIGHT),
 	])
 	_add("flight_collision_debug", "Toggle Collision Debug", CONTEXT_FLIGHT, [
 		_key(KEY_F3),
@@ -213,10 +213,7 @@ func _build_registry() -> void:
 	_add("ui_interact", "Interact", CONTEXT_UI, [
 		_key(KEY_F),
 	])
-	_add("ui_pause", "Pause Menu", CONTEXT_UI, [
-		_key(KEY_ESCAPE),
-	])
-	_add("ui_abort_descent", "Abort Descent", CONTEXT_UI, [
+	_add("ui_pause", "Pause / Back", CONTEXT_UI, [
 		_key(KEY_ESCAPE),
 	])
 	_add("ui_skip_dialogue", "Skip Dialogue", CONTEXT_UI, [
@@ -226,22 +223,16 @@ func _build_registry() -> void:
 		_key(KEY_SPACE), _key(KEY_ENTER),
 	])
 	_add("ui_scanner_toggle", "Toggle Scanner", CONTEXT_UI, [
-		_key(KEY_TAB),
+		_key(KEY_QUOTELEFT),
 	])
 	_add("ui_galaxymap_toggle", "Toggle Galaxy Map", CONTEXT_UI, [
 		_key(KEY_M),
 	])
 	_add("ui_skip_cinematic", "Skip Cinematic", CONTEXT_UI, [
-		_key(KEY_ESCAPE), _key(KEY_SPACE), _key(KEY_ENTER),
-	])
-	_add("ui_organ_inspector_close", "Close Organ Inspector", CONTEXT_UI, [
-		_key(KEY_ESCAPE),
-	])
-	_add("ui_ship_builder_close", "Close Ship Builder", CONTEXT_UI, [
-		_key(KEY_ESCAPE),
+		_key_ctrl(KEY_ENTER),
 	])
 	_add("ui_hyperspace_abort", "Abort Hyperspace Jump", CONTEXT_UI, [
-		_key(KEY_BACKSPACE), _key(KEY_ESCAPE),
+		_key(KEY_BACKSPACE),
 	])
 
 
@@ -630,6 +621,12 @@ func _event_label_string(event: InputEvent) -> String:
 func _key(keycode: int) -> InputEventKey:
 	var k := InputEventKey.new()
 	k.keycode = keycode as Key
+	return k
+
+func _key_ctrl(keycode: int) -> InputEventKey:
+	var k := InputEventKey.new()
+	k.keycode = keycode as Key
+	k.ctrl_pressed = true
 	return k
 
 

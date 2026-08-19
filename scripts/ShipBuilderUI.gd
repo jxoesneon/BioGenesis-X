@@ -663,7 +663,7 @@ func _handle_orbit_input(event: InputEvent) -> void:
 			idle_interaction_timer = 0.0
 
 	elif event is InputEventKey and event.pressed and not event.echo:
-		if event.is_action_pressed("ui_ship_builder_close"):
+		if event.is_action_pressed("ui_pause"):
 			_on_back_to_main_menu_pressed()
 		elif event.is_action_pressed("galmap_left"):
 			orbit_yaw += 0.12
