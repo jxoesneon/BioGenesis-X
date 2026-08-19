@@ -8,11 +8,10 @@ extends Node
 
 ## Active VFX budget — prevents particle explosion spam from tanking FPS
 const MAX_ACTIVE_VFX: int = 64
-var _active_vfx_count: int = 0
 
 ## Spawn an impact effect at the given world position.
 ## Returns the spawned Node3D (or null if budget exceeded).
-static func spawn_impact(pos: Vector3, color: Color, hit_shield: bool, damage: float) -> Node3D:
+func spawn_impact(pos: Vector3, color: Color, hit_shield: bool, damage: float) -> Node3D:
 	var root := Engine.get_main_loop() as SceneTree
 	if not root or not root.current_scene:
 		return null
@@ -22,7 +21,7 @@ static func spawn_impact(pos: Vector3, color: Color, hit_shield: bool, damage: f
 	return vfx
 
 ## Spawn a muzzle flash at the given world position and direction.
-static func spawn_muzzle_flash(pos: Vector3, direction: Vector3, color: Color) -> Node3D:
+func spawn_muzzle_flash(pos: Vector3, direction: Vector3, color: Color) -> Node3D:
 	var root := Engine.get_main_loop() as SceneTree
 	if not root or not root.current_scene:
 		return null
@@ -34,7 +33,7 @@ static func spawn_muzzle_flash(pos: Vector3, direction: Vector3, color: Color) -
 
 ## Spawn an explosion at the given world position. Used for enemy death,
 ## asteroid destruction, and large impacts.
-static func spawn_explosion(pos: Vector3, color: Color, scale: float = 1.0) -> Node3D:
+func spawn_explosion(pos: Vector3, color: Color, scale: float = 1.0) -> Node3D:
 	var root := Engine.get_main_loop() as SceneTree
 	if not root or not root.current_scene:
 		return null
@@ -44,7 +43,7 @@ static func spawn_explosion(pos: Vector3, color: Color, scale: float = 1.0) -> N
 	return explosion
 
 ## Spawn a shield ripple effect at the given position, oriented to the hit normal.
-static func spawn_shield_ripple(pos: Vector3, normal: Vector3, color: Color) -> Node3D:
+func spawn_shield_ripple(pos: Vector3, normal: Vector3, color: Color) -> Node3D:
 	var root := Engine.get_main_loop() as SceneTree
 	if not root or not root.current_scene:
 		return null
@@ -58,7 +57,7 @@ static func spawn_shield_ripple(pos: Vector3, normal: Vector3, color: Color) -> 
 # Internal: Particle node factories
 # ==============================================================================
 
-static func _create_impact_node(color: Color, hit_shield: bool, damage: float) -> Node3D:
+func _create_impact_node(color: Color, hit_shield: bool, damage: float) -> Node3D:
 	var container := Node3D.new()
 	container.name = "ImpactVFX"
 
@@ -107,7 +106,7 @@ static func _create_impact_node(color: Color, hit_shield: bool, damage: float) -
 
 	return container
 
-static func _create_muzzle_flash(color: Color) -> Node3D:
+func _create_muzzle_flash(color: Color) -> Node3D:
 	var container := Node3D.new()
 	container.name = "MuzzleFlash"
 
@@ -151,7 +150,7 @@ static func _create_muzzle_flash(color: Color) -> Node3D:
 
 	return container
 
-static func _create_explosion(color: Color, scale: float) -> Node3D:
+func _create_explosion(color: Color, scale: float) -> Node3D:
 	var container := Node3D.new()
 	container.name = "Explosion"
 
@@ -230,7 +229,7 @@ static func _create_explosion(color: Color, scale: float) -> Node3D:
 
 	return container
 
-static func _create_shield_ripple(color: Color) -> Node3D:
+func _create_shield_ripple(color: Color) -> Node3D:
 	var container := Node3D.new()
 	container.name = "ShieldRipple"
 
@@ -278,7 +277,7 @@ static func _create_shield_ripple(color: Color) -> Node3D:
 # Internal: Helpers
 # ==============================================================================
 
-static func _create_fade_ramp_texture(color: Color) -> GradientTexture1D:
+func _create_fade_ramp_texture(color: Color) -> GradientTexture1D:
 	var grad := Gradient.new()
 	grad.set_color(0, color)
 	grad.set_color(1, Color(color.r, color.g, color.b, 0.0))
@@ -286,7 +285,7 @@ static func _create_fade_ramp_texture(color: Color) -> GradientTexture1D:
 	tex.gradient = grad
 	return tex
 
-static func _create_explosion_ramp_texture(color: Color) -> GradientTexture1D:
+func _create_explosion_ramp_texture(color: Color) -> GradientTexture1D:
 	var grad := Gradient.new()
 	grad.set_color(0, Color(1.0, 1.0, 0.8, 1.0))  # White-hot core
 	grad.set_color(1, Color(color.r * 0.3, color.g * 0.3, color.b * 0.3, 0.0))  # Faded smoke
@@ -294,7 +293,7 @@ static func _create_explosion_ramp_texture(color: Color) -> GradientTexture1D:
 	tex.gradient = grad
 	return tex
 
-static func _add_cleanup_timer(node: Node, delay: float) -> void:
+func _add_cleanup_timer(node: Node, delay: float) -> void:
 	var timer := Timer.new()
 	timer.name = "CleanupTimer"
 	timer.wait_time = delay

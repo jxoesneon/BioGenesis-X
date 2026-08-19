@@ -432,7 +432,7 @@ func fire_beam_tick() -> bool:
 			var query := PhysicsRayQueryParameters3D.create(origin, end_pos)
 			query.collide_with_areas = true
 			query.collide_with_bodies = true
-			query.exclude = [get_rid()]
+			query.exclude = _get_beam_exclude_rids()
 			var hit_dict := space_state.intersect_ray(query)
 			if not hit_dict.is_empty():
 				end_pos = hit_dict.get("position", end_pos)
@@ -531,7 +531,7 @@ func _refresh_beam_visual() -> void:
 			var query := PhysicsRayQueryParameters3D.create(origin, end_pos)
 			query.collide_with_areas = true
 			query.collide_with_bodies = true
-			query.exclude = [get_rid()]
+			query.exclude = _get_beam_exclude_rids()
 			var hit_dict := space_state.intersect_ray(query)
 			if not hit_dict.is_empty():
 				end_pos = hit_dict.get("position", end_pos)
@@ -552,6 +552,18 @@ func _ensure_beam_visual() -> void:
 	_beam_visual.material_override = mat
 	if is_inside_tree() and get_tree() and get_tree().root:
 		get_tree().root.add_child(_beam_visual)
+
+## Collects RIDs of ancestor CollisionObject3D nodes (the player ship) so the
+## beam raycast does not hit the firing vessel. WeaponSystem itself is a Node3D
+## and has no collision RID, so we walk up the tree to find the ship body.
+func _get_beam_exclude_rids() -> Array:
+	var rids: Array = []
+	var node: Node = self
+	while is_instance_valid(node):
+		if node is CollisionObject3D:
+			rids.append((node as CollisionObject3D).get_rid())
+		node = node.get_parent()
+	return rids
 
 
 # ==============================================================================

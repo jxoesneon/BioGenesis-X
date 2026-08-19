@@ -262,7 +262,6 @@ func _attack_behavior(delta: float) -> void:
 		return
 	# Maintain attack distance — strafe around player
 	var to_player: Vector3 = _player_ref.global_position - global_position
-	var dist: float = to_player.length()
 	var desired_dist: float = _attack_range * 0.7
 	var strafe_dir: Vector3 = to_player.normalized()
 	# Perpendicular strafe vector

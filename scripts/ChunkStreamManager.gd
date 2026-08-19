@@ -753,11 +753,14 @@ func _spawn_enemy_drone(parent: Node3D, local_pos: Vector3, aggression: float, r
 	drone.position = local_pos
 	parent.add_child(drone)
 
-	# VoidFaunaDrone._ready() sets base_position = global_position on enter-tree,
-	# but set it explicitly afterwards to guarantee the patrol anchor is the spawn
-	# position even if _ready() ordering or @tool timing differs.
+	# VoidFaunaDrone._ready() sets base_position = global_position on enter-tree.
+	# Use local position as fallback if global_position isn't available yet
+	# (parent may not be in scene tree at spawn time).
 	if drone.has_method("get") and drone.get("base_position") != null:
-		drone.set("base_position", drone.global_position)
+		if drone.is_inside_tree():
+			drone.set("base_position", drone.global_position)
+		else:
+			drone.set("base_position", drone.position)
 
 func _spawn_anomaly_beacon(parent: Node3D, local_pos: Vector3, intensity: float, _rng: RandomNumberGenerator) -> void:
 	var beacon := MeshInstance3D.new()

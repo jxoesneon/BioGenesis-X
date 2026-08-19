@@ -25,7 +25,6 @@ signal projectile_hit(hit_point: Vector3, hit_shield: bool, target_killed: bool)
 
 var _mesh_instance: MeshInstance3D
 var _light: OmniLight3D
-var _trail_points: PackedVector3Array
 var _trail_max_points: int = 12
 var _age: float = 0.0
 

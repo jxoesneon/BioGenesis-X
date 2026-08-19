@@ -328,7 +328,7 @@ func _input(event: InputEvent) -> void:
 			_refresh_target_list_cache()
 			if not _target_list_cache.is_empty():
 				_cycle_target()
-				set_input_as_handled()
+				get_viewport().set_input_as_handled()
 
 func _on_telemetry_updated(data: Dictionary) -> void:
 	if data.has("heart_rate_bpm"): heart_rate_bpm = data["heart_rate_bpm"]
@@ -576,25 +576,32 @@ func _update_threat_assessment() -> void:
 		player_pos = (_flight_controller_ref as Node3D).global_position
 	else:
 		return
-	var current_scene := tree.current_scene
-	if current_scene == null:
-		return
-	for child in current_scene.get_children():
-		if not (child is BioPlasmaProjectile):
+	# Enemy projectiles are added to current_scene; player bolts to the scene
+	# tree root. Scan both — the direction filter excludes outgoing player fire.
+	var candidate_parents: Array[Node] = []
+	if tree.current_scene != null:
+		candidate_parents.append(tree.current_scene)
+	if tree.root != null:
+		candidate_parents.append(tree.root)
+	for parent in candidate_parents:
+		if not is_instance_valid(parent):
 			continue
-		if not is_instance_valid(child):
-			continue
-		var proj := child as BioPlasmaProjectile
-		var to_player: Vector3 = player_pos - proj.global_position
-		var dist: float = to_player.length()
-		if dist > 50.0:
-			continue
-		# Direction of travel — if heading toward the player, flag as incoming.
-		var dir: Vector3 = proj.direction
-		if dir.length_squared() > 1e-6 and to_player.length_squared() > 1e-6:
-			if dir.normalized().dot(to_player.normalized()) > 0.0:
-				_incoming_fire_warning = true
-				break
+		for child in parent.get_children():
+			if not (child is BioPlasmaProjectile):
+				continue
+			if not is_instance_valid(child):
+				continue
+			var proj := child as BioPlasmaProjectile
+			var to_player: Vector3 = player_pos - proj.global_position
+			var dist: float = to_player.length()
+			if dist > 50.0:
+				continue
+			# Direction of travel — if heading toward the player, flag as incoming.
+			var dir: Vector3 = proj.direction
+			if dir.length_squared() > 1e-6 and to_player.length_squared() > 1e-6:
+				if dir.normalized().dot(to_player.normalized()) > 0.0:
+					_incoming_fire_warning = true
+					return
 
 
 ## Tracks the nearest celestial body in the "targets" group for the directional
