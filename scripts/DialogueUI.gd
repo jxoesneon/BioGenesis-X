@@ -199,9 +199,11 @@ func _build_responses(responses: Array) -> void:
 			# Reuse pooled button.
 			btn = _button_pool[pool_idx]
 			btn.visible = true
-			# Disconnect previous binding before reconnecting.
-			if btn.is_connected("pressed", Callable()):
-				btn.pressed.disconnect(Callable())
+			# Disconnect ALL previous pressed connections before reconnecting.
+			# The old connections bind different response objects, so we must
+			# remove every one to prevent stacked callbacks causing dialogue loops.
+			for conn in btn.pressed.get_connections():
+				btn.pressed.disconnect(conn.callable)
 		else:
 			# Create new button and add to pool.
 			btn = Button.new()
