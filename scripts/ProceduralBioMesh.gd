@@ -120,6 +120,10 @@ func _exit_tree() -> void:
 	if bm and bm.has_signal("ship_configuration_changed"):
 		if bm.is_connected("ship_configuration_changed", Callable(self, "_on_ship_config_changed")):
 			bm.disconnect("ship_configuration_changed", Callable(self, "_on_ship_config_changed"))
+	# Clean up the regen overlay explicitly.
+	if _regen_overlay and is_instance_valid(_regen_overlay):
+		_regen_overlay.queue_free()
+		_regen_overlay = null
 
 func _on_ship_config_changed(config: Dictionary) -> void:
 	rebuild_ship_mesh(config)

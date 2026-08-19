@@ -1,5 +1,5 @@
 class_name CovenantController
-extends Node
+extends QuestFlowController
 
 ## ============================================================================
 ## BioGenesis-X Covenant Controller
@@ -51,61 +51,89 @@ var asked_about_covenant: bool = false
 var asked_about_bond: bool = false
 
 # --- Internal state ---
-var _dialogue_ui: DialogueUI = null
 var _flight_controller: Node = null
 var _has_granted_ship: bool = false
 var _flight_objective_pending: bool = false
-var _covenant_completed: bool = false
 
+
+# ============================================================================
+# VIRTUAL METHOD OVERRIDES
+# ============================================================================
+
+func _get_quest_id() -> String:
+	return QUEST_ID
+
+
+func _get_dialogue_path() -> String:
+	return COVENANT_DIALOGUE_PATH
+
+
+func _get_objective_ids() -> Dictionary:
+	return {
+		"approach": OBJ_APPROACH,
+		"dialogue": OBJ_DIALOGUE,
+		"bond": OBJ_BOND,
+		"flight": OBJ_FLIGHT,
+	}
+
+
+func _save_key() -> String:
+	return SAVE_KEY
+
+
+func _on_flow_start() -> void:
+	# Decide whether to trigger the intro sequence.
+	_maybe_begin_intro()
+
+
+func _on_flow_complete(result: Dictionary) -> void:
+	on_dialogue_complete(result)
+
+
+func _on_flow_abort() -> void:
+	pass
+
+
+func _serialize_state() -> Dictionary:
+	return {
+		"ship_granted": _has_granted_ship,
+		"bond_accepted": bond_accepted,
+		"refused_count": refused_count,
+	}
+
+
+func _deserialize_state(data: Dictionary) -> void:
+	_has_granted_ship = bool(data.get("ship_granted", false))
+	bond_accepted = bool(data.get("bond_accepted", false))
+	refused_count = int(data.get("refused_count", 0))
+	print("[CovenantController] Restored covenant state — completed=%s, ship_granted=%s" % [_flow_completed, _has_granted_ship])
+
+
+# ============================================================================
+# LIFECYCLE
+# ============================================================================
 
 func _ready() -> void:
-	# Locate the DialogueUI sibling (added in space_flight.tscn).
-	_dialogue_ui = get_node_or_null("DialogueUI")
-	if _dialogue_ui == null:
-		# Fall back to searching the parent for a DialogueUI child.
-		for child in get_parent().get_children():
-			if child is DialogueUI:
-				_dialogue_ui = child
-				break
-	if _dialogue_ui:
-		_dialogue_ui.dialogue_ended.connect(on_dialogue_complete)
-		_dialogue_ui.choice_made.connect(_on_choice_made)
-	else:
-		push_warning("[CovenantController] No DialogueUI found — covenant dialogue will not run.")
-
+	super._ready()
 	# Locate the player ship (FlightController) for flight-unlock hooks.
 	_flight_controller = get_tree().get_nodes_in_group("player_ship").front() if get_tree().get_nodes_in_group("player_ship").size() > 0 else null
 	if _flight_controller and _flight_controller.has_signal("boost_state_changed"):
 		_flight_controller.boost_state_changed.connect(_on_player_boost)
+	# Bridge the base flow_started signal to the covenant-specific signal so
+	# covenant_started fires at the exact moment the dialogue begins.
+	flow_started.connect(_on_flow_started)
 
-	# Hook into QuestManager signals to advance objectives / grant ship.
-	if QuestManager:
-		if QuestManager.has_signal("quest_completed"):
-			QuestManager.quest_completed.connect(_on_quest_completed)
-		if QuestManager.has_signal("objective_completed"):
-			QuestManager.objective_completed.connect(_on_objective_completed)
-
-	# Restore covenant state from save.
-	_load_covenant_state()
-
-	# Decide whether to trigger the intro sequence.
-	_maybe_begin_intro()
 
 func _exit_tree() -> void:
-	# Disconnect all signals to prevent orphaned connections.
-	if _dialogue_ui and is_instance_valid(_dialogue_ui):
-		if _dialogue_ui.is_connected("dialogue_ended", on_dialogue_complete):
-			_dialogue_ui.dialogue_ended.disconnect(on_dialogue_complete)
-		if _dialogue_ui.is_connected("choice_made", _on_choice_made):
-			_dialogue_ui.choice_made.disconnect(_on_choice_made)
+	super._exit_tree()
+	# Disconnect covenant-specific signals to prevent orphaned connections.
 	if _flight_controller and is_instance_valid(_flight_controller):
 		if _flight_controller.is_connected("boost_state_changed", _on_player_boost):
 			_flight_controller.boost_state_changed.disconnect(_on_player_boost)
-	if QuestManager:
-		if QuestManager.is_connected("quest_completed", _on_quest_completed):
-			QuestManager.quest_completed.disconnect(_on_quest_completed)
-		if QuestManager.is_connected("objective_completed", _on_objective_completed):
-			QuestManager.objective_completed.disconnect(_on_objective_completed)
+
+
+func _on_flow_started() -> void:
+	covenant_started.emit()
 
 
 # ============================================================================
@@ -115,29 +143,13 @@ func _exit_tree() -> void:
 ## Begin the covenant conversation. Called automatically on first start, or
 ## manually when the player approaches a Void-Fauna.
 func trigger_covenant_dialogue() -> void:
-	if _covenant_completed:
-		print("[CovenantController] Covenant already completed — skipping dialogue.")
-		return
-	if _dialogue_ui == null or not is_instance_valid(_dialogue_ui):
-		push_warning("[CovenantController] DialogueUI unavailable — cannot trigger covenant.")
-		return
 	# Reset dialogue variables for a fresh conversation.
 	bond_accepted = false
 	refused_count = 0
 	asked_about_fauna = false
 	asked_about_covenant = false
 	asked_about_bond = false
-
-	# Mark the approach objective done as the player has reached the fauna.
-	_complete_objective_safe(QUEST_ID, OBJ_APPROACH)
-
-	var dialogue_res: DialogueResource = load(COVENANT_DIALOGUE_PATH) as DialogueResource
-	if dialogue_res == null:
-		push_error("[CovenantController] Failed to load covenant dialogue: %s" % COVENANT_DIALOGUE_PATH)
-		return
-	covenant_started.emit()
-	# Pass `self` as an extra game state so the dialogue can mutate our vars.
-	_dialogue_ui.start(dialogue_res, "start", [self])
+	_begin_dialogue_flow()
 
 
 ## Handle the end of the covenant dialogue — read the outcome and advance quest.
@@ -163,7 +175,7 @@ func on_dialogue_complete(result: Dictionary) -> void:
 		bond_accepted = false
 		covenant_refused.emit()
 		# Refusal ends the intro without granting a ship. Persist the refusal.
-		_save_covenant_state()
+		_save_flow_state()
 
 	print("[CovenantController] Covenant dialogue complete — bond_accepted=%s" % bond_accepted)
 
@@ -172,20 +184,12 @@ func on_dialogue_complete(result: Dictionary) -> void:
 # QUEST SIGNAL HANDLERS
 # ============================================================================
 
-## When an objective completes, persist covenant progress.
-func _on_objective_completed(quest_id: String, _objective_id: String) -> void:
-	if quest_id != QUEST_ID:
-		return
-	_save_covenant_state()
-
-
 ## When the First Symbiosis quest reaches COMPLETED, grant the player their ship.
 func _on_quest_completed(quest_id: String) -> void:
 	if quest_id != QUEST_ID:
 		return
-	_covenant_completed = true
 	_grant_ship()
-	_save_covenant_state()
+	super._on_quest_completed(quest_id)
 
 
 ## Track player choices for narrative logging / refusal handling.
@@ -236,11 +240,11 @@ func _grant_ship() -> void:
 ## On first game start (no completed covenant), trigger the intro. On
 ## subsequent loads where the covenant is already done, skip it.
 func _maybe_begin_intro() -> void:
-	if _covenant_completed:
+	if _flow_completed:
 		print("[CovenantController] Covenant already completed — skipping intro.")
 		return
 	if QuestManager and QuestManager.is_quest_complete(QUEST_ID):
-		_covenant_completed = true
+		_flow_completed = true
 		_has_granted_ship = true
 		print("[CovenantController] Quest already complete — ship already granted.")
 		return
@@ -251,62 +255,3 @@ func _maybe_begin_intro() -> void:
 		QuestManager.start_quest(QUEST_ID)
 	# Defer the dialogue trigger a frame so the quest start signal propagates.
 	call_deferred("trigger_covenant_dialogue")
-
-
-## Waits (with a timeout) for QuestManager._is_initialized to become true.
-func _await_quest_manager_ready() -> void:
-	if QuestManager == null:
-		return
-	var elapsed: float = 0.0
-	const TIMEOUT: float = 6.0
-	while is_instance_valid(QuestManager) and not bool(QuestManager.get("_is_initialized")):
-		await get_tree().create_timer(0.05).timeout
-		elapsed += 0.05
-		if elapsed >= TIMEOUT:
-			push_warning("[CovenantController] Timed out waiting for QuestManager init.")
-			return
-
-
-# ============================================================================
-# SAVE / LOAD
-# ============================================================================
-
-func _load_covenant_state() -> void:
-	if SaveSystem == null:
-		return
-	var data: Dictionary = SaveSystem.current_save_data.get(SAVE_KEY, {})
-	if data.is_empty():
-		return
-	_covenant_completed = bool(data.get("completed", false))
-	_has_granted_ship = bool(data.get("ship_granted", false))
-	bond_accepted = bool(data.get("bond_accepted", false))
-	refused_count = int(data.get("refused_count", 0))
-	print("[CovenantController] Restored covenant state — completed=%s, ship_granted=%s" % [_covenant_completed, _has_granted_ship])
-
-
-func _save_covenant_state() -> void:
-	if SaveSystem == null:
-		return
-	var data: Dictionary = {
-		"completed": _covenant_completed,
-		"ship_granted": _has_granted_ship,
-		"bond_accepted": bond_accepted,
-		"refused_count": refused_count,
-	}
-	SaveSystem.current_save_data[SAVE_KEY] = data
-	if SaveSystem.has_method("save_game"):
-		SaveSystem.save_game()
-
-
-# ============================================================================
-# INTERNAL HELPERS
-# ============================================================================
-
-## Complete a MANUAL objective via QuestManager, guarded for pre-init calls.
-func _complete_objective_safe(quest_id: String, obj_id: String) -> void:
-	if QuestManager == null:
-		return
-	if not bool(QuestManager.get("_is_initialized")):
-		# QuestManager not ready yet — defer until it is.
-		await _await_quest_manager_ready()
-	QuestManager.complete_objective(quest_id, obj_id)

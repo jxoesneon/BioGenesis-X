@@ -12,6 +12,8 @@ const MAX_ACTIVE_VFX: int = 64
 # Cached Juicee autoload reference (dynamic lookup so this autoload parses cleanly
 # even when the Juicee singleton isn't registered, e.g. headless test runs).
 var _juicee_node: Node = null
+# Active tween tracking — maps node RID to Tween for explicit cleanup.
+var _active_tweens: Dictionary = {}
 
 ## Spawn an impact effect at the given world position.
 ## [param normal] is the surface normal at the hit point (used to orient the
@@ -340,11 +342,30 @@ func _attach_impact_burn_decal(parent: Node3D, normal: Vector3, damage: float, e
 	# Animate impact_age so the ripple expands and the scorch fades. The shader's
 	# discharge_decay uniform drives the fade; we just advance time.
 	var tween := parent.create_tween()
+	_track_tween(decal, tween)
 	tween.tween_method(
 		func(age: float) -> void:
 			if is_instance_valid(mat):
 				mat.set_shader_parameter("impact_age", age),
 		0.0, 3.0, 1.0).set_trans(Tween.TRANS_LINEAR)
+	tween.finished.connect(func() -> void: _untrack_tween(decal))
+
+## Tracks a tween keyed by its associated node for explicit cleanup.
+func _track_tween(node: Node, tween: Tween) -> void:
+	_active_tweens[node.get_instance_id()] = tween
+
+## Removes a tween from tracking (called on tween.finished).
+func _untrack_tween(node: Node) -> void:
+	_active_tweens.erase(node.get_instance_id())
+
+## Kills and clears all tweens associated with the given node. Call before queue_free.
+func cleanup_tweens_for_node(node: Node) -> void:
+	var id := node.get_instance_id()
+	if _active_tweens.has(id):
+		var tween: Tween = _active_tweens[id]
+		if is_instance_valid(tween):
+			tween.kill()
+		_active_tweens.erase(id)
 
 ## Applies the bio_dissolve shader to [param target_mesh] and animates an organic
 ## disintegration from solid → gone over [param duration] seconds. The mesh's
@@ -369,10 +390,9 @@ func spawn_dissolve(target_mesh: MeshInstance3D, color: Color, duration: float =
 	# hard shadow pops as it disintegrates.
 	target_mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	var tween := target_mesh.create_tween()
-	# Tween is automatically killed when the target node is freed, preventing
-	# orphaned tween callbacks. The material is RefCounted and freed when the
-	# tween completes or the node is destroyed.
+	_track_tween(target_mesh, tween)
 	tween.tween_property(mat, "shader_parameter/dissolve_amount", 1.0, duration).set_trans(Tween.TRANS_LINEAR)
+	tween.finished.connect(func() -> void: _untrack_tween(target_mesh))
 
 # ==============================================================================
 # Internal: Helpers

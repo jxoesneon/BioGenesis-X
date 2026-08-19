@@ -141,6 +141,7 @@ var _shield_visual: BioShieldVisual = null
 var _fuel_tank_visual: MeshInstance3D = null
 var _fuel_tank_mat: ShaderMaterial = null
 var _fuel_tank_base_scale: float = 1.0
+var _last_fuel_ratio: float = -1.0  # Dirty flag for fuel tank visual updates
 # Cached Juicee autoload reference (looked up dynamically so the script parses
 # cleanly even when the Juicee singleton isn't registered, e.g. headless tests).
 var _juicee_node: Node = null
@@ -436,6 +437,9 @@ func _input(event: InputEvent) -> void:
 			toggle_collision_debug()
 
 func _process(delta: float) -> void:
+	# Guard against running during scene teardown.
+	if not is_inside_tree():
+		return
 	# Damp mouse_flight_cursor at render rate (not physics rate) so the HUD
 	# reticle smooths consistently regardless of physics/render frame timing.
 	if mouse_control_enabled and wave_state == WaveState.OFF:
@@ -462,7 +466,11 @@ func _process(delta: float) -> void:
 					_shield_visual.set_strength(bio_shield / maxf(1.0, bio_shield_max))
 	# Keep the bio-plasma fuel tank visual fill in sync with the reserve (fuel
 	# changes in both _handle_bio_boost and the Wave Engine cruise).
-	_update_fuel_tank_visual()
+	# Dirty flag: only update when fuel ratio actually changes.
+	var fuel_ratio := bio_plasma_fuel / maxf(1.0, max_bio_plasma_fuel)
+	if !is_equal_approx(fuel_ratio, _last_fuel_ratio):
+		_last_fuel_ratio = fuel_ratio
+		_update_fuel_tank_visual()
 
 func _physics_process(delta: float) -> void:
 	# Skip normal rotation during wave engine CHARGING/ENGAGED — auto-align handles all rotation

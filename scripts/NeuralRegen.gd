@@ -142,11 +142,14 @@ func _free_gpu_resources() -> void:
 	_compute_available = false
 
 func _process(delta: float) -> void:
+	# Guard against running during scene teardown after _exit_tree freed resources.
+	if not is_inside_tree():
+		return
 	_time_since_damage += delta
 
 	# Decay the visual pulse intensity over time.
 	regen_visual_intensity = move_toward(regen_visual_intensity, 0.0, delta * 0.8)
-	if _regen_material != null:
+	if is_instance_valid(_regen_material):
 		_regen_material.set_shader_parameter("regen_intensity", regen_visual_intensity)
 
 	# Run the GPU compute healing step on a throttled interval.

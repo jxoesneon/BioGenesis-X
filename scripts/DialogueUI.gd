@@ -50,6 +50,9 @@ var _vbox: VBoxContainer = null
 var _character_label: Label = null
 var _dialogue_label: RichTextLabel = null
 var _responses_container: VBoxContainer = null
+## Button pool — reused across dialogue lines to avoid per-line allocation.
+var _button_pool: Array[Button] = []
+const _BUTTON_POOL_SIZE: int = 8
 var _advance_hint: Label = null
 
 # Biopunk palette
@@ -182,34 +185,52 @@ func _on_typing_finished() -> void:
 		_advance_hint.show()
 
 
-## Build a button for each response and wire selection.
+## Build a button for each response and wire selection. Uses a button pool
+## to avoid per-line allocation/deallocation.
 func _build_responses(responses: Array) -> void:
+	var pool_idx: int = 0
 	for response in responses:
 		if not is_instance_valid(response):
 			continue
 		if not response.is_allowed:
 			continue
-		var btn := Button.new()
+		var btn: Button = null
+		if pool_idx < _button_pool.size():
+			# Reuse pooled button.
+			btn = _button_pool[pool_idx]
+			btn.visible = true
+			# Disconnect previous binding before reconnecting.
+			if btn.is_connected("pressed", Callable()):
+				btn.pressed.disconnect(Callable())
+		else:
+			# Create new button and add to pool.
+			btn = Button.new()
+			btn.add_theme_font_size_override("font_size", 15)
+			btn.add_theme_color_override("font_color", _COLOR_CHOICE_TEXT)
+			btn.add_theme_color_override("font_hover_color", Color.WHITE)
+			btn.add_theme_stylebox_override("normal", _make_choice_stylebox(_COLOR_CHOICE))
+			btn.add_theme_stylebox_override("hover", _make_choice_stylebox(_COLOR_CHOICE_HOVER))
+			btn.add_theme_stylebox_override("pressed", _make_choice_stylebox(_COLOR_CHOICE_HOVER))
+			btn.add_theme_stylebox_override("focus", _make_choice_stylebox(_COLOR_CHOICE_HOVER))
+			btn.custom_minimum_size = Vector2(0, 38)
+			btn.focus_mode = Control.FOCUS_ALL
+			_button_pool.append(btn)
+			_responses_container.add_child(btn)
 		btn.text = response.text
-		btn.add_theme_font_size_override("font_size", 15)
-		btn.add_theme_color_override("font_color", _COLOR_CHOICE_TEXT)
-		btn.add_theme_color_override("font_hover_color", Color.WHITE)
-		btn.add_theme_stylebox_override("normal", _make_choice_stylebox(_COLOR_CHOICE))
-		btn.add_theme_stylebox_override("hover", _make_choice_stylebox(_COLOR_CHOICE_HOVER))
-		btn.add_theme_stylebox_override("pressed", _make_choice_stylebox(_COLOR_CHOICE_HOVER))
-		btn.add_theme_stylebox_override("focus", _make_choice_stylebox(_COLOR_CHOICE_HOVER))
-		btn.custom_minimum_size = Vector2(0, 38)
-		btn.focus_mode = Control.FOCUS_ALL
 		btn.pressed.connect(_on_response_selected.bind(response))
-		_responses_container.add_child(btn)
+		pool_idx += 1
+	# Hide any excess pooled buttons.
+	for i in range(pool_idx, _button_pool.size()):
+		_button_pool[i].visible = false
 	# Focus the first choice for keyboard navigation.
-	if _responses_container.get_child_count() > 0:
-		_responses_container.get_child(0).grab_focus()
+	if pool_idx > 0 and is_instance_valid(_button_pool[0]):
+		_button_pool[0].grab_focus()
 
 
 func _clear_responses() -> void:
-	for child in _responses_container.get_children():
-		child.queue_free()
+	# Hide all pooled buttons instead of freeing them.
+	for btn in _button_pool:
+		btn.visible = false
 
 
 func _on_response_selected(response: DialogueResponse) -> void:
