@@ -75,6 +75,11 @@ func _ready() -> void:
 	# Wait for the QuestController to finish its async initialization, then
 	# restore any persisted quest state from the save file.
 	await _await_controller_initialized()
+	# Defer one extra frame so the quest registry cache and auto-start graphs
+	# are fully processed before we try to restore quest state. Without this,
+	# load_quest_data() can race with _load_registry_cache() and log
+	# "no definition found" warnings for quests that haven't been instantiated yet.
+	await get_tree().process_frame
 	_load_quest_state()
 	_is_initialized = true
 	print("[QuestManager] Initialized — QuestController ready, quest state restored.")

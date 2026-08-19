@@ -22,7 +22,6 @@
 [ext_resource type="Texture2D" uid="uid://b35p7vpvmdcsb" path="res://addons/starlight/psf-textures/jwst.png" id="16_psftex"]
 [ext_resource type="Script" path="res://scripts/DialogueUI.gd" id="17_dialogueui"]
 [ext_resource type="Script" path="res://scripts/CovenantController.gd" id="18_covenant"]
-[ext_resource type="Script" path="res://scripts/BioInventoryController.gd" id="19_inventory"]
 
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_nebulasky"]
 shader = ExtResource("6_nebulasky")
@@ -330,6 +329,3 @@ script = ExtResource("17_dialogueui")
 
 [node name="CovenantController" type="Node" parent="."]
 script = ExtResource("18_covenant")
-
-[node name="BioInventoryController" type="Node" parent="."]
-script = ExtResource("19_inventory")

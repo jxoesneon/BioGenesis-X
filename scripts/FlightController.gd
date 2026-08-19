@@ -1683,11 +1683,21 @@ func _setup_camera() -> void:
 		fpv_camera.transform.origin = fpv_base_pos
 		fpv_camera.fov = base_fov
 		add_child(fpv_camera)
+	# Disable physics interpolation on cameras — they are driven by SpringArm3D
+	# tracking + render-rate visual effects (shake, FOV lerping, head-lag).
+	# Physics interpolation on cameras that are not purely physics-driven
+	# triggers "Interpolated Camera3D triggered from outside physics process"
+	# warnings in Godot 4.7 with common/physics_interpolation=true.
+	for cam in [fpv_camera, chase_camera]:
+		if cam and is_instance_valid(cam):
+			cam.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
 
 	# Find Chase Camera
 	chase_camera = get_node_or_null("CameraPivot/SpringArm3D/Camera3D") as Camera3D
 	if not chase_camera:
 		chase_camera = get_node_or_null("SpringArm3D/Camera3D") as Camera3D
+	if chase_camera and is_instance_valid(chase_camera):
+		chase_camera.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
 
 	# Activate default camera mode
 	set_camera_mode(camera_mode)
