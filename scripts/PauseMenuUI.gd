@@ -227,6 +227,7 @@ func _get_bio_manager() -> Node:
 
 func _on_builder_pressed() -> void:
 	_play_ui_click(true)
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	var ml := Engine.get_main_loop()
 	if ml is SceneTree:
 		ml.set("paused", false)
@@ -241,6 +242,7 @@ func _on_builder_pressed() -> void:
 
 func _on_main_menu_pressed() -> void:
 	_play_ui_click(true)
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	var ml := Engine.get_main_loop()
 	if ml is SceneTree:
 		ml.set("paused", false)

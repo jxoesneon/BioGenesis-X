@@ -45,6 +45,11 @@ const _PARTICLE_COUNT: int = 30
 
 func _ready() -> void:
 	set_anchors_and_offsets_preset(PRESET_FULL_RECT)
+	# Ensure the mouse is visible for menu interaction. The flight scene
+	# captures the mouse; if we transition here from the pause menu, the
+	# mouse may still be captured.
+	if not Engine.is_editor_hint():
+		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	_build_main_menu()
 	_locate_bio_manager()
 	_init_particles()
