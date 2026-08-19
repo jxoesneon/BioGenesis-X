@@ -780,16 +780,31 @@ class EmpPulseArea extends Area3D:
 		var sphere := SphereMesh.new()
 		sphere.radius = 1.0
 		sphere.height = 2.0
-		var mat := StandardMaterial3D.new()
-		var c := Color(0.45, 0.75, 1.0, 0.55)
-		mat.albedo_color = c
-		mat.emission = c
-		mat.emission_energy_multiplier = 2.5
-		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-		mat.no_depth_test = true
-		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-		sphere.material = mat
+		# Bio-containment field shader — hexagonal energy mesh + fresnel rim for
+		# a stasis/containment bubble look. Null-safe: falls back to a plain
+		# unshaded emissive material if the shader isn't registered.
+		var shader: Shader = ShaderRegistry.get_shader(ShaderRegistry.ID_CONTAINMENT_FIELD)
+		if shader:
+			var smat := ShaderMaterial.new()
+			smat.shader = shader
+			smat.set_shader_parameter("mesh_scale", 2.0)
+			smat.set_shader_parameter("field_color", Color(0.0, 0.9, 1.0, 1.0))
+			smat.set_shader_parameter("cell_color", Color(1.0, 0.7, 0.15, 1.0))
+			smat.set_shader_parameter("rim_color", Color(0.0, 1.0, 0.55, 1.0))
+			smat.set_shader_parameter("emission_boost", 3.0)
+			sphere.material = smat
+		else:
+			var mat := StandardMaterial3D.new()
+			var c := Color(0.45, 0.75, 1.0, 0.55)
+			mat.albedo_color = c
+			mat.emission = c
+			mat.emission_energy_multiplier = 2.5
+			mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+			mat.no_depth_test = true
+			mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+			sphere.material = mat
 		_mesh.mesh = sphere
+		_mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		add_child(_mesh)
 
 		# Disable monitoring self

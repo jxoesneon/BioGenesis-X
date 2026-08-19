@@ -14,14 +14,19 @@ const MAX_ACTIVE_VFX: int = 64
 var _juicee_node: Node = null
 
 ## Spawn an impact effect at the given world position.
+## [param normal] is the surface normal at the hit point (used to orient the
+## bio-impact burn decal flat against the hull). Defaults to UP when unknown.
 ## Returns the spawned Node3D (or null if budget exceeded).
-func spawn_impact(pos: Vector3, color: Color, hit_shield: bool, damage: float) -> Node3D:
+func spawn_impact(pos: Vector3, color: Color, hit_shield: bool, damage: float, normal: Vector3 = Vector3.UP) -> Node3D:
 	var root := Engine.get_main_loop() as SceneTree
 	if not root or not root.current_scene:
 		return null
 	var vfx: Node3D = _create_impact_node(color, hit_shield, damage)
 	vfx.global_position = pos
 	root.current_scene.add_child(vfx)
+	# Bio-impact burn decal — organic scorch + energy discharge that fades over
+	# time. Null-safe: skipped if the shader isn't registered.
+	_attach_impact_burn_decal(vfx, normal, damage, color)
 	# Juicee impact juice: 3D camera shake + hit-stop + FOV punch, scaled by damage.
 	_trigger_combat_juice(damage, hit_shield)
 	return vfx
@@ -285,6 +290,86 @@ func _create_shield_ripple(color: Color) -> Node3D:
 	_add_cleanup_timer(container, 0.8)
 
 	return container
+
+# ==============================================================================
+# Internal: Bio-shader decal / dissolve factories
+# ==============================================================================
+
+## Spawns a flat bio-impact burn decal as a child of the impact VFX container,
+## oriented to the surface normal. The decal uses bio_impact_burn.gdshader and
+## animates impact_age so the energy discharge ripple fades over time. Null-safe:
+## no-ops if the shader isn't registered (headless / missing asset).
+func _attach_impact_burn_decal(parent: Node3D, normal: Vector3, damage: float, energy_color: Color) -> void:
+	var shader: Shader = ShaderRegistry.get_shader(ShaderRegistry.ID_IMPACT_BURN)
+	if shader == null:
+		return
+	var n: Vector3 = normal
+	if n.length_squared() < 0.001:
+		n = Vector3.UP
+	n = n.normalized()
+
+	var decal := MeshInstance3D.new()
+	decal.name = "BioImpactBurnDecal"
+	# Small flat quad lying in the XY plane (PlaneMesh default faces +Y); we
+	# orient it so its +Y axis aligns with the surface normal.
+	var quad := PlaneMesh.new()
+	quad.size = Vector2(1.6, 1.6)
+	quad.material = null
+	decal.mesh = quad
+	decal.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+
+	var mat := ShaderMaterial.new()
+	mat.shader = shader
+	# impact_point is object-space; the decal is centered on the hit so use origin.
+	mat.set_shader_parameter("impact_point", Vector3.ZERO)
+	mat.set_shader_parameter("impact_age", 0.0)
+	mat.set_shader_parameter("impact_strength", clampf(damage / 25.0, 0.3, 3.0))
+	mat.set_shader_parameter("impact_radius", 1.4)
+	# Tint the discharge to the weapon/impact energy color for visual cohesion.
+	mat.set_shader_parameter("discharge_color", energy_color)
+
+	decal.material_override = mat
+	parent.add_child(decal)
+
+	# Orient the decal flat against the surface (PlaneMesh +Y → normal).
+	if n != Vector3.UP:
+		decal.look_at(decal.global_position + n, Vector3.UP)
+	else:
+		decal.rotation = Vector3.ZERO
+
+	# Animate impact_age so the ripple expands and the scorch fades. The shader's
+	# discharge_decay uniform drives the fade; we just advance time.
+	var tween := parent.create_tween()
+	tween.tween_method(
+		func(age: float) -> void:
+			if is_instance_valid(mat):
+				mat.set_shader_parameter("impact_age", age),
+		0.0, 3.0, 1.0).set_trans(Tween.TRANS_LINEAR)
+
+## Applies the bio_dissolve shader to [param target_mesh] and animates an organic
+## disintegration from solid → gone over [param duration] seconds. The mesh's
+## material_override is replaced with the dissolve material; the caller is
+## responsible for freeing the owning node after the animation completes.
+## Null-safe: no-ops if the shader isn't registered.
+func spawn_dissolve(target_mesh: MeshInstance3D, color: Color, duration: float = 1.5) -> void:
+	if target_mesh == null or not is_instance_valid(target_mesh):
+		return
+	var shader: Shader = ShaderRegistry.get_shader(ShaderRegistry.ID_DISSOLVE)
+	if shader == null:
+		return
+	var mat := ShaderMaterial.new()
+	mat.shader = shader
+	mat.set_shader_parameter("dissolve_amount", 0.0)
+	mat.set_shader_parameter("base_color", Color(
+		color.r * 0.25, color.g * 0.4, color.b * 0.35, 1.0))
+	mat.set_shader_parameter("edge_color_inner", color)
+	mat.set_shader_parameter("edge_color_outer", Color(1.0, 0.05, 0.45, 1.0))
+	target_mesh.material_override = mat
+	# Disable shadow casting during dissolve so the fading hull doesn't leave
+	# hard shadow pops as it disintegrates.
+	target_mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var tween := target_mesh.create_tween()
+	tween.tween_property(mat, "shader_parameter/dissolve_amount", 1.0, duration).set_trans(Tween.TRANS_LINEAR)
 
 # ==============================================================================
 # Internal: Helpers

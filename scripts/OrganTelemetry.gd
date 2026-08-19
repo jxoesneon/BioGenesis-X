@@ -19,6 +19,11 @@ signal telemetry_updated(data: Dictionary)
 ## Signal emitted per ECG waveform sample tick for real-time line graph drawing
 signal ecg_pulse(waveform_sample: float)
 
+## Signal emitted when an organ starts or stops healing. [param organ_id] is the
+## organ node id, [param is_healing] is true when healing begins, false when it
+## stops (full health or regen interrupted by damage).
+signal organ_healing(organ_id: String, is_healing: bool)
+
 # ------------------------------------------------------------------------------
 # Core Telemetry State & Operating Ranges (ORGAN_SYSTEMS.md & LORE.md)
 # ------------------------------------------------------------------------------
@@ -63,6 +68,15 @@ var current_ecg_sample: float = 0.0
 # Telemetry emit timer interval
 var telemetry_timer: float = 0.0
 const TELEMETRY_EMIT_INTERVAL: float = 0.1 # 10 Hz updates
+
+# ------------------------------------------------------------------------------
+# Per-Organ Healing State (NeuralRegen integration)
+# ------------------------------------------------------------------------------
+
+## Tracks the current healing state of each organ node id (true = healing).
+## Updated by NeuralRegen._heal_organs() via set_organ_healing(). Consumed by
+## the HUD organ inspector for bioluminescent healing feedback.
+var _organ_healing_states: Dictionary = {}
 
 func _ready() -> void:
 	ecg_history.resize(ecg_buffer_max_size)
@@ -257,3 +271,69 @@ func get_pipeline_telemetry(pipeline_id: String) -> Dictionary:
 			}
 		_:
 			return get_telemetry_snapshot()
+
+# ------------------------------------------------------------------------------
+# NeuralRegen Organ Health Integration
+# ------------------------------------------------------------------------------
+
+## Returns a normalized [0..1] multiplier based on average organ health across
+## the BioManager topology. Used by NeuralRegen to scale hull/shield/organ
+## regeneration rates — healthier organs → faster regen. Falls back to the
+## neural_sync_rate proxy (0.945..0.999 → 0..1) when no organ topology is
+## available (e.g. headless tests, no BioManager).
+func get_organ_health_multiplier() -> float:
+	var ml := Engine.get_main_loop()
+	if not (ml is SceneTree) or not ml.root:
+		return 1.0
+	var bm: Node = ml.root.get_node_or_null("BioManager")
+	if bm == null or not bm.has_method("get_ship_config"):
+		# No BioManager — use neural sync rate as a health proxy.
+		var sync: float = clampf(neural_sync_rate / 100.0, 0.0, 1.0)
+		return clampf((sync - 0.945) / (0.999 - 0.945), 0.0, 1.0)
+	var cfg: Dictionary = bm.get_ship_config()
+	if not cfg.has("organ_node_topology"):
+		var sync2: float = clampf(neural_sync_rate / 100.0, 0.0, 1.0)
+		return clampf((sync2 - 0.945) / (0.999 - 0.945), 0.0, 1.0)
+	var topology: Dictionary = cfg["organ_node_topology"]
+	var total_health: float = 0.0
+	var organ_count: int = 0
+	for pipeline_id in topology:
+		var pipeline: Dictionary = topology[pipeline_id]
+		if not pipeline.has("nodes"):
+			continue
+		for node in pipeline["nodes"]:
+			total_health += float(node.get("health", 100.0))
+			organ_count += 1
+	if organ_count == 0:
+		return 1.0
+	var avg: float = total_health / float(organ_count)
+	return clampf(avg / 100.0, 0.0, 1.0)
+
+## Records the healing state of a specific organ node and emits organ_healing
+## when the state transitions. Called by NeuralRegen._heal_organs().
+func set_organ_healing(organ_id: String, is_healing: bool) -> void:
+	var prev: bool = bool(_organ_healing_states.get(organ_id, false))
+	if prev != is_healing:
+		_organ_healing_states[organ_id] = is_healing
+		organ_healing.emit(organ_id, is_healing)
+
+## Clears all organ healing states (e.g. when the ship takes damage and all
+## healing is interrupted). Emits organ_healing(false) for each previously
+## healing organ so the HUD updates immediately.
+func clear_all_organ_healing() -> void:
+	for organ_id in _organ_healing_states.keys():
+		if bool(_organ_healing_states[organ_id]):
+			organ_healing.emit(str(organ_id), false)
+	_organ_healing_states.clear()
+
+## Returns a copy of the per-organ healing state dictionary (organ_id → bool).
+## Consumed by the HUD organ inspector for visual feedback.
+func get_organ_healing_states() -> Dictionary:
+	return _organ_healing_states.duplicate()
+
+## Returns true if any organ is currently healing.
+func is_any_organ_healing() -> bool:
+	for organ_id in _organ_healing_states:
+		if bool(_organ_healing_states[organ_id]):
+			return true
+	return false

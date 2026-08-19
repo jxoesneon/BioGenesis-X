@@ -314,7 +314,9 @@ func _notify_hit_marker(hit_shield: bool, target_killed: bool) -> void:
 func _spawn_impact_particles(pos: Vector3, hit_shield: bool) -> void:
 	if not is_inside_tree() or not get_tree():
 		return
-	var fx := CombatVFX.spawn_impact(pos, projectile_color, hit_shield, damage)
+	# Use the projectile's travel direction as an approximate surface normal so
+	# the bio-impact burn decal orients flat against the hit surface.
+	var fx := CombatVFX.spawn_impact(pos, projectile_color, hit_shield, damage, -direction)
 	if fx and get_tree().current_scene:
 		get_tree().current_scene.add_child(fx)
 

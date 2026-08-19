@@ -152,6 +152,12 @@ func on_damage_taken(amount: float) -> void:
 		_hull_regen_active = false
 	if _shield_regen_active:
 		_shield_regen_active = false
+	# Damage interrupts all organ healing — notify OrganTelemetry so the HUD
+	# clears the healing indicators immediately.
+	if _organ_telemetry == null:
+		_organ_telemetry = _get_organ_telemetry()
+	if _organ_telemetry != null and _organ_telemetry.has_method("clear_all_organ_healing"):
+		_organ_telemetry.clear_all_organ_healing()
 
 ## Called by FlightController._process() each frame to drive regeneration.
 ## The FlightController is passed so NeuralRegen can read/write hull & shield.
@@ -248,18 +254,25 @@ func inject_damage_at(cell_x: int, cell_y: int, amount: float) -> void:
 # ------------------------------------------------------------------------------
 
 ## Computes a multiplier [min_organ_health_mult, 1.0] based on average organ
-## health from OrganTelemetry. Healthier organs → faster regeneration.
+## health from OrganTelemetry. Healthier organs → faster regeneration. Uses
+## OrganTelemetry.get_organ_health_multiplier() (which reads the BioManager
+## organ topology) when available, falling back to the neural_sync_rate proxy.
 func _get_organ_health_multiplier() -> float:
 	if _organ_telemetry == null:
 		_organ_telemetry = _get_organ_telemetry()
 	if _organ_telemetry == null:
 		return 1.0  # No telemetry → assume healthy
-	# Use neural sync rate as a proxy for organ health (95-100% = healthy).
+	# Prefer the dedicated organ-health multiplier (reads BioManager topology).
+	if _organ_telemetry.has_method("get_organ_health_multiplier"):
+		var raw: float = float(_organ_telemetry.get_organ_health_multiplier())
+		# Map 0..1 into [min_organ_health_mult, 1.0] so low-health organs still
+		# allow a minimum of regen rather than zeroing it out entirely.
+		return clampf(lerp(min_organ_health_mult, 1.0, raw), min_organ_health_mult, 1.0)
+	# Fallback: neural sync rate proxy (95-100% = healthy).
 	var sync: float = 1.0
 	if _organ_telemetry.has_method("get_telemetry_snapshot"):
 		var snap: Dictionary = _organ_telemetry.get_telemetry_snapshot()
 		sync = float(snap.get("neural_sync_rate", 98.4)) / 100.0
-	# Map 94.5% → min_organ_health_mult, 99.9% → 1.0
 	var mult: float = clampf((sync - 0.945) / (0.999 - 0.945), min_organ_health_mult, 1.0)
 	return mult
 
@@ -276,19 +289,33 @@ func _heal_organs(delta: float, organ_mult: float) -> void:
 		return
 	var topology: Dictionary = cfg["organ_node_topology"]
 	var healed_any: bool = false
+	# Resolve OrganTelemetry for per-organ healing state tracking + signals.
+	if _organ_telemetry == null:
+		_organ_telemetry = _get_organ_telemetry()
 	for pipeline_id in topology:
 		var pipeline: Dictionary = topology[pipeline_id]
 		if not pipeline.has("nodes"):
 			continue
 		var nodes: Array = pipeline["nodes"]
 		for node in nodes:
+			var organ_id: String = str(node.get("id", "organ"))
 			var health: float = float(node.get("health", 100.0))
 			if health < 100.0:
 				var new_health: float = minf(100.0, health + organ_heal_rate * organ_mult * delta)
 				node["health"] = new_health
 				healed_any = true
+				# Notify OrganTelemetry that this organ is actively healing.
+				if _organ_telemetry != null and _organ_telemetry.has_method("set_organ_healing"):
+					_organ_telemetry.set_organ_healing(organ_id, true)
 				if new_health >= 100.0:
-					regeneration_complete.emit(str(node.get("id", "organ")))
+					regeneration_complete.emit(organ_id)
+					# Organ fully healed — stop healing state.
+					if _organ_telemetry != null and _organ_telemetry.has_method("set_organ_healing"):
+						_organ_telemetry.set_organ_healing(organ_id, false)
+			else:
+				# Organ at full health — ensure healing state is cleared.
+				if _organ_telemetry != null and _organ_telemetry.has_method("set_organ_healing"):
+					_organ_telemetry.set_organ_healing(organ_id, false)
 	if healed_any:
 		regen_visual_intensity = maxf(regen_visual_intensity, 0.2)
 

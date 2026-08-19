@@ -47,6 +47,22 @@ extends MeshInstance3D
 		chitin_base_color = val
 		if Engine.is_editor_hint(): rebuild_ship_mesh()
 
+@export_category("BioTexture Generator")
+## Seed for the procedural hull texture (veins, bioluminescent spots, plate seams).
+## -1 derives a deterministic seed from the archetype + bioluminescent color.
+@export var hull_texture_seed: int = -1
+## Damage level (0.0 = pristine, 1.0 = heavily scorched) applied to the hull texture.
+@export_range(0.0, 1.0, 0.05) var hull_damage_level: float = 0.0:
+	set(val):
+		hull_damage_level = val
+		if Engine.is_editor_hint(): rebuild_ship_mesh()
+## Blend strength of the procedural hull albedo map over the shader's base albedo.
+@export_range(0.0, 1.0, 0.05) var hull_albedo_blend: float = 0.45
+## Emission intensity of the procedural hull bioluminescent veins/spots.
+@export_range(0.0, 8.0, 0.1) var hull_emission_strength: float = 1.5
+## Toggle the BioTextureGenerator hull map on/off.
+@export var use_bio_texture_generator: bool = true
+
 @export_category("Collision Options")
 @export var auto_generate_collision: bool = true
 
@@ -55,11 +71,21 @@ const CHITIN_SHADER_PATH = "res://shaders/chitin_organic.gdshader"
 const BIO_SHADER_PATH = "res://shaders/bioluminescence.gdshader"
 const THRUSTER_SHADER_PATH = "res://shaders/plasma_thruster.gdshader"
 const INTERIOR_SHADER_PATH = "res://shaders/interior_membrane.gdshader"
+const REGEN_SHADER_PATH = "res://shaders/bio_regen.gdshader"
 
 var mat_chitin: ShaderMaterial
 var mat_bio: ShaderMaterial
 var mat_thruster: ShaderMaterial
 var mat_interior: ShaderMaterial
+## NeuralRegen bioluminescent overlay material (cyan-green healing / red-orange
+## damage). Applied to a secondary MeshInstance3D child that shares the ship
+## mesh so the overlay renders on top without clobbering the primary shaders.
+var mat_regen: ShaderMaterial
+## Lazily-built regen overlay material owned by _setup_regen_overlay (richer
+## parameter set than the basic mat_regen above, which is kept for compatibility).
+var _regen_mat: ShaderMaterial = null
+## Child MeshInstance3D that renders the regen overlay pass over the ship hull.
+var _regen_overlay: MeshInstance3D = null
 
 # Shared Procedural PBR Noise Textures
 var noise_tex_macro: NoiseTexture2D
@@ -168,6 +194,39 @@ func _init_materials() -> void:
 		mat_interior = ShaderMaterial.new()
 		mat_interior.shader = shader_interior
 
+	# NeuralRegen bioluminescent overlay shader (invisible until regen activates).
+	var shader_regen := load(REGEN_SHADER_PATH) as Shader
+	if shader_regen:
+		mat_regen = ShaderMaterial.new()
+		mat_regen.shader = shader_regen
+		mat_regen.set_shader_parameter("regen_intensity", 0.0)
+		mat_regen.set_shader_parameter("damage_flash", 0.0)
+
+## Generates (or fetches cached) procedural hull albedo + emission textures via
+## BioTextureGenerator and binds them to the chitin material. The same texture
+## is used for both samplers: bright bioluminescent veins/spots emit while the
+## dark organic base tints the albedo blend.
+func _apply_bio_hull_textures(archetype_str: String, bio_color: Color, chitin_color: Color) -> void:
+	if not use_bio_texture_generator or mat_chitin == null:
+		if mat_chitin:
+			mat_chitin.set_shader_parameter("hull_albedo_blend", 0.0)
+			mat_chitin.set_shader_parameter("hull_emission_strength", 0.0)
+		return
+
+	# Derive a deterministic seed when none is explicitly set
+	var tex_seed: int = hull_texture_seed
+	if tex_seed < 0:
+		tex_seed = int(archetype_str.hash()) ^ int(bio_color.to_rgba32()) ^ int(chitin_color.to_rgba32())
+		# Ensure a non-negative 31-bit seed for FastNoiseLite
+		tex_seed = absi(tex_seed) & 0x7FFFFFFF
+
+	var hull_tex: ImageTexture = BioTextureGenerator.generate_hull_texture(tex_seed, hull_damage_level)
+	if hull_tex:
+		mat_chitin.set_shader_parameter("hull_albedo_texture", hull_tex)
+		mat_chitin.set_shader_parameter("hull_emission_texture", hull_tex)
+		mat_chitin.set_shader_parameter("hull_albedo_blend", hull_albedo_blend)
+		mat_chitin.set_shader_parameter("hull_emission_strength", hull_emission_strength)
+
 ## Re-generates the entire 3D mesh dynamically based on parameters dictionary or inspector properties
 func rebuild_ship_mesh(ship_config: Dictionary = {}) -> void:
 	if mat_chitin == null or mat_bio == null or mat_thruster == null or mat_interior == null:
@@ -199,6 +258,9 @@ func rebuild_ship_mesh(ship_config: Dictionary = {}) -> void:
 
 	if mat_interior:
 		mat_interior.set_shader_parameter("capillary_color", cfg_bio_color)
+
+	# Apply BioTextureGenerator procedural hull albedo + emission maps
+	_apply_bio_hull_textures(cfg_archetype_raw, cfg_bio_color, cfg_chitin_color)
 
 	# Distinctive Archetype Morphology Multipliers
 	var width_mult: float = 1.0
@@ -313,8 +375,13 @@ func rebuild_ship_mesh(ship_config: Dictionary = {}) -> void:
 	array_mesh = _commit_surface_tool(st_interior, mat_interior, array_mesh, count_interior)
 
 	self.mesh = array_mesh
-	
+
 	self.scale = Vector3.ONE * cfg_scale
+
+	# Build / refresh the NeuralRegen overlay pass — a child MeshInstance3D that
+	# shares the same ArrayMesh but renders the bio_regen shader on top. The
+	# overlay is invisible (alpha 0) until regen_intensity > 0.
+	_setup_regen_overlay()
 
 	if auto_generate_collision:
 		generate_collision()
@@ -333,6 +400,51 @@ func get_ship_geometric_center() -> Vector3:
 		var aabb := mesh.get_aabb()
 		return aabb.position + aabb.size * 0.5
 	return Vector3(0.0, 0.0, 0.0)
+
+## Builds / refreshes the NeuralRegen overlay pass — a child MeshInstance3D that
+## shares this node's ArrayMesh but renders the bio_regen shader on top. The
+## overlay starts invisible (regen_intensity = 0) and is driven by NeuralRegen
+## via set_regen_intensity() / set_damage_flash(). Null-safe: no-ops if the
+## bio_regen shader isn't registered, so the ship still renders normally.
+func _setup_regen_overlay() -> void:
+	if mesh == null:
+		return
+	# Lazily create the overlay child once.
+	if _regen_overlay == null:
+		_regen_overlay = MeshInstance3D.new()
+		_regen_overlay.name = "NeuralRegenOverlay"
+		_regen_overlay.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		add_child(_regen_overlay)
+	# Share the freshly-built ArrayMesh so the overlay always matches the hull.
+	_regen_overlay.mesh = mesh
+	if mat_regen == null:
+		var shader: Shader = load(REGEN_SHADER_PATH) as Shader
+		if shader == null:
+			push_warning("ProceduralBioMesh: bio_regen shader failed to load — regen overlay disabled.")
+			return
+		mat_regen = ShaderMaterial.new()
+		mat_regen.shader = shader
+		mat_regen.set_shader_parameter("regen_intensity", 0.0)
+		mat_regen.set_shader_parameter("damage_flash", 0.0)
+		mat_regen.set_shader_parameter("pulse_speed", 2.0)
+		mat_regen.set_shader_parameter("pulse_amplitude", 0.8)
+		mat_regen.set_shader_parameter("healthy_color", Color(0.0, 0.95, 0.55, 1.0))
+		mat_regen.set_shader_parameter("damaged_color", Color(1.0, 0.35, 0.1, 1.0))
+		mat_regen.set_shader_parameter("vein_color", Color(0.1, 0.9, 0.7, 1.0))
+	if mat_regen:
+		_regen_overlay.material_override = mat_regen
+
+## Sets the regen overlay intensity [0..1]. Called by NeuralRegen. No-ops if the
+## overlay isn't available.
+func set_regen_intensity(intensity: float) -> void:
+	if mat_regen:
+		mat_regen.set_shader_parameter("regen_intensity", clampf(intensity, 0.0, 1.0))
+
+## Sets the regen overlay damage flash [0..1]. Called by NeuralRegen. No-ops if
+## the overlay isn't available.
+func set_damage_flash(flash: float) -> void:
+	if mat_regen:
+		mat_regen.set_shader_parameter("damage_flash", clampf(flash, 0.0, 1.0))
 
 ## Safe helper to commit a SurfaceTool to ArrayMesh and bind its material
 func _commit_surface_tool(st: SurfaceTool, mat: Material, target_mesh: ArrayMesh, vert_count: int) -> ArrayMesh:

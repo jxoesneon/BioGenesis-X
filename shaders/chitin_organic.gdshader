@@ -27,6 +27,12 @@ uniform sampler2D noise_texture_macro : hint_default_white;
 uniform sampler2D noise_texture_micro : hint_default_white;
 uniform sampler2D noise_texture_normal : hint_normal;
 
+group_uniforms BioTexture_Generator;
+uniform sampler2D hull_albedo_texture : hint_default_white;
+uniform sampler2D hull_emission_texture : hint_default_black;
+uniform float hull_albedo_blend : hint_range(0.0, 1.0, 0.01) = 0.0;
+uniform float hull_emission_strength : hint_range(0.0, 8.0, 0.05) = 1.0;
+
 group_uniforms Surface_PBR_Parameters;
 uniform float metallic : hint_range(0.0, 1.0, 0.01) = 0.40;
 uniform float roughness_base : hint_range(0.0, 1.0, 0.01) = 0.28;
@@ -222,7 +228,17 @@ void fragment() {
     vec3 final_albedo = mix(layer_base, nacre_rainbow, fresnel * iridescence_strength * (1.0 - wear_mask * 0.5));
     final_albedo *= wear_darkening;
 
+    // 6b. BIO TEXTURE GENERATOR BLEND (optional runtime procedural hull map)
+    // The generator encodes bioluminescent veins/spots brightly and the organic
+    // base darkly, so blending into albedo adds plate-seam and vein detail while
+    // binding the same map to emission makes only the bright filaments glow.
+    vec4 hull_albedo_sample = texture(hull_albedo_texture, UV);
+    final_albedo = mix(final_albedo, hull_albedo_sample.rgb, hull_albedo_blend * hull_albedo_sample.a);
+
     ALBEDO = final_albedo;
+
+    // Bioluminescent emission from the generator's bright vein/spot channels.
+    EMISSION = texture(hull_emission_texture, UV).rgb * hull_emission_strength;
 
     // 7. PBR PHYSICAL SURFACE PROPERTIES
     // Glossy keratin plate centers vs matte porous crevices & worn margins

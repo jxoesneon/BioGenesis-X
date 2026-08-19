@@ -8,13 +8,25 @@ extends Node
 ##   - graphics: fullscreen, vsync, msaa, shadow_quality, render_scale
 ##   - gameplay: poi_scan_radius_ly, hud_opacity, auto_aim_assist, camera_sensitivity
 ##   - controls: invert_y, mouse_sensitivity, flight_damping
+##   - localization: language (ISO 639-1 code, e.g. "en", "es")
+##
+## Localization is wired through LocGuard Lite (in-editor checker) at authoring
+## time and the standard Godot TranslationServer at runtime. Translation files
+## live in res://translations/ and are registered in project.godot.
 ##
 ## Usage:
 ##   SettingsSystem.get_setting("audio", "master_volume", 0.8)
 ##   SettingsSystem.set_setting("audio", "master_volume", 0.5)
 ##   SettingsSystem.save_settings()
+##   SettingsSystem.set_language("es")  # switches TranslationServer locale
 
 const SETTINGS_FILE_PATH = "user://settings.json"
+const TRANSLATIONS_DIR := "res://translations"
+## Supported language codes mapped to human-readable display names.
+const SUPPORTED_LANGUAGES: Dictionary = {
+	"en": "English",
+	"es": "Español",
+}
 
 # --- Default settings schema ---
 const DEFAULTS: Dictionary = {
@@ -89,21 +101,68 @@ const DEFAULTS: Dictionary = {
 		"reduce_motion": false,      # bool (disables screen shake, camera shake)
 		"screen_shake_intensity": 1.0, # 0.0 - 1.0
 	},
+	"localization": {
+		"language": "en",            # ISO 639-1 code (en, es, ...). Default resolved at boot.
+	},
 }
 
 var _settings: Dictionary = {}
 var _loaded: bool = false
+# Resolved at boot from OS.get_locale(); used as the default for the
+# "localization/language" setting since DEFAULTS is a const and cannot be
+# mutated at runtime.
+var _language_default: String = "en"
 
 # --- Signals ---
 signal setting_changed(section: String, key: String, value: Variant)
 signal settings_loaded()
+signal language_changed(code: String)
 
 func _ready() -> void:
+	_resolve_default_language()
 	load_settings()
+	_load_translations()
 	_apply_all_settings()
+
+## Resolve the default language from the OS locale on first boot. The stored
+## value in DEFAULTS is a placeholder; we replace it with the OS language if it
+## is one of our supported languages, otherwise fall back to "en".
+func _resolve_default_language() -> void:
+	var os_locale := OS.get_locale()
+	var os_lang := os_locale.split("_")[0]
+	if SUPPORTED_LANGUAGES.has(os_lang):
+		_language_default = os_lang
+	else:
+		_language_default = "en"
+
+## Load all .translation resources from res://translations/ into the
+## TranslationServer. This is a runtime fallback that guarantees translations
+## are available even when the project.godot registration hasn't been processed
+## (e.g. fresh clones before the first editor import). project.godot also
+## registers them, and duplicate adds are harmless.
+func _load_translations() -> void:
+	var dir := DirAccess.open(TRANSLATIONS_DIR)
+	if dir == null:
+		print("[SettingsSystem] No translations directory found at ", TRANSLATIONS_DIR)
+		return
+	dir.list_dir_begin()
+	var name := dir.get_next()
+	while name != "":
+		if not dir.current_is_dir() and name.get_extension() == "translation":
+			var res_path := TRANSLATIONS_DIR + "/" + name
+			var translation: Translation = load(res_path) as Translation
+			if translation:
+				TranslationServer.add_translation(translation)
+				print("[SettingsSystem] Loaded translation: ", res_path)
+			else:
+				push_warning("[SettingsSystem] Failed to load translation: " + res_path)
+		name = dir.get_next()
 
 func load_settings() -> void:
 	_settings = DEFAULTS.duplicate(true)
+	# Apply the boot-resolved default language (OS locale) before merging saved
+	# values so a first-boot user gets their OS language instead of the const "en".
+	_settings["localization"]["language"] = _language_default
 	if FileAccess.file_exists(SETTINGS_FILE_PATH):
 		var file := FileAccess.open(SETTINGS_FILE_PATH, FileAccess.READ)
 		if file:
@@ -145,6 +204,9 @@ func get_setting(section: String, key: String, default: Variant = null) -> Varia
 		return default
 	# Fall back to DEFAULTS
 	if DEFAULTS.has(section) and DEFAULTS[section].has(key):
+		# localization/language default is resolved at boot from the OS locale
+		if section == "localization" and key == "language":
+			return _language_default
 		return DEFAULTS[section][key]
 	return null
 
@@ -198,6 +260,8 @@ func _apply_setting(section: String, key: String, value: Variant) -> void:
 			_apply_controls_setting(key, value)
 		"accessibility":
 			_apply_accessibility_setting(key, value)
+		"localization":
+			_apply_localization_setting(key, value)
 
 func _apply_audio_setting(key: String, value: Variant) -> void:
 	match key:
@@ -392,6 +456,40 @@ func _apply_accessibility_setting(key: String, value: Variant) -> void:
 			_apply_reduce_motion(bool(value))
 		"screen_shake_intensity":
 			_apply_screen_shake_intensity(float(value))
+
+# --- Localization ---
+
+func _apply_localization_setting(key: String, value: Variant) -> void:
+	match key:
+		"language":
+			_apply_language(String(value))
+
+func _apply_language(code: String) -> void:
+	var lang := code.strip_edges()
+	if lang.is_empty():
+		lang = _language_default
+	if not SUPPORTED_LANGUAGES.has(lang):
+		push_warning("[SettingsSystem] Unsupported language code '%s', falling back to 'en'" % lang)
+		lang = "en"
+	TranslationServer.set_locale(lang)
+	print("[SettingsSystem] Locale set to: ", lang)
+	language_changed.emit(lang)
+
+## Set the active language. Persists immediately and applies to TranslationServer.
+func set_language(code: String) -> void:
+	set_setting("localization", "language", code)
+
+## Get the active language code (e.g. "en", "es").
+func get_language() -> String:
+	return String(get_setting("localization", "language", "en"))
+
+## Get the list of supported language codes in stable order.
+func get_supported_languages() -> Array:
+	return SUPPORTED_LANGUAGES.keys()
+
+## Get a human-readable display name for a language code.
+func get_language_display_name(code: String) -> String:
+	return String(SUPPORTED_LANGUAGES.get(code, code))
 
 # --- Graphics helper functions ---
 

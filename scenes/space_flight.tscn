@@ -20,6 +20,10 @@
 [ext_resource type="Script" uid="uid://diu68uum03i7o" path="res://addons/starlight/StarGenerator.gd" id="14_stargen"]
 [ext_resource type="Shader" uid="uid://d1uitpdgwi8cr" path="res://addons/starlight/Star.gdshader" id="15_starshader"]
 [ext_resource type="Texture2D" uid="uid://b35p7vpvmdcsb" path="res://addons/starlight/psf-textures/jwst.png" id="16_psftex"]
+[ext_resource type="Script" path="res://scripts/DialogueUI.gd" id="17_dialogueui"]
+[ext_resource type="Script" path="res://scripts/CovenantController.gd" id="18_covenant"]
+[ext_resource type="Script" path="res://scripts/DialogueUI.gd" id="17_dialogueui"]
+[ext_resource type="Script" path="res://scripts/CovenantController.gd" id="18_covenant"]
 
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_nebulasky"]
 shader = ExtResource("6_nebulasky")
@@ -321,3 +325,15 @@ radiotrophic_abs_gy_hr = 59.5
 target_distance_m = 85.35354
 target_screen_position = Vector2(835.967, 457.51297)
 lead_indicator_position = Vector2(835.967, 457.51297)
+
+[node name="DialogueUI" type="CanvasLayer" parent="."]
+script = ExtResource("17_dialogueui")
+
+[node name="CovenantController" type="Node" parent="."]
+script = ExtResource("18_covenant")
+
+[node name="DialogueUI" type="CanvasLayer" parent="."]
+script = ExtResource("17_dialogueui")
+
+[node name="CovenantController" type="Node" parent="."]
+script = ExtResource("18_covenant")

@@ -152,12 +152,12 @@ func _build_main_menu() -> void:
 	menu_container.add_child(btn_cinematic)
 
 	# 5. SETTINGS
-	var btn_settings := _create_menu_button("SETTINGS", Color(0.6, 0.8, 1.0))
+	var btn_settings := _create_menu_button(tr("SETTINGS"), Color(0.6, 0.8, 1.0))
 	btn_settings.pressed.connect(_on_settings_pressed)
 	menu_container.add_child(btn_settings)
 
 	# 6. EXIT
-	btn_exit = _create_menu_button("EXIT", Color(1.0, 0.3, 0.3))
+	btn_exit = _create_menu_button(tr("QUIT"), Color(1.0, 0.3, 0.3))
 	btn_exit.pressed.connect(_on_exit_pressed)
 	menu_container.add_child(btn_exit)
 

@@ -69,6 +69,17 @@ var _hit_marker_is_kill: bool = false
 # Damage flash overlay intensity (0-1), drives red screen vignette
 var _damage_flash_visual: float = 0.0
 
+# --- NeuralRegen Visual Feedback State ---
+# Regen activity intensity [0..1] from NeuralRegen.regen_visual_intensity.
+var _regen_intensity: float = 0.0
+# True when hull or shield regeneration is active.
+var _regen_hull_active: bool = false
+var _regen_shield_active: bool = false
+# Per-organ healing state mirror (organ_id → bool) from OrganTelemetry.
+var _organ_healing_states: Dictionary = {}
+# Cached NeuralRegen autoload reference.
+var _neural_regen_ref: Node = null
+
 # --- Advanced Targeting State ---
 # Cached list of valid trackable targets in the "targets" group (refreshed each
 # frame by _update_target_tracking_3d). Used by Tab cycling.
@@ -160,6 +171,8 @@ func _exit_tree() -> void:
 	if _telemetry_ref and is_instance_valid(_telemetry_ref):
 		if _telemetry_ref.is_connected("telemetry_updated", Callable(self, "_on_telemetry_updated")):
 			_telemetry_ref.disconnect("telemetry_updated", Callable(self, "_on_telemetry_updated"))
+		if _telemetry_ref.is_connected("organ_healing", Callable(self, "_on_organ_healing")):
+			_telemetry_ref.disconnect("organ_healing", Callable(self, "_on_organ_healing"))
 	_disconnect_weapon_signals()
 
 func _disconnect_weapon_signals() -> void:
@@ -245,6 +258,15 @@ func _locate_engine_autoloads() -> void:
 	if _telemetry_ref and _telemetry_ref.has_signal("telemetry_updated"):
 		if not _telemetry_ref.is_connected("telemetry_updated", Callable(self, "_on_telemetry_updated")):
 			_telemetry_ref.connect("telemetry_updated", Callable(self, "_on_telemetry_updated"))
+
+	# Wire OrganTelemetry organ_healing signal for per-organ healing feedback.
+	if _telemetry_ref and _telemetry_ref.has_signal("organ_healing"):
+		if not _telemetry_ref.is_connected("organ_healing", Callable(self, "_on_organ_healing")):
+			_telemetry_ref.connect("organ_healing", Callable(self, "_on_organ_healing"))
+
+	# Cache NeuralRegen autoload for regen intensity / active-state reads.
+	if is_inside_tree() and get_tree() and get_tree().root:
+		_neural_regen_ref = get_tree().root.get_node_or_null("NeuralRegen")
 
 	# Look for parent/sibling FlightController
 	_find_flight_controller()
@@ -337,8 +359,13 @@ func _on_telemetry_updated(data: Dictionary) -> void:
 	if data.has("nanite_repair_rate"): nanite_coagulation_m3s = data["nanite_repair_rate"]
 	if data.has("radiotrophic_absorption_gy_hr"): radiotrophic_abs_gy_hr = data["radiotrophic_absorption_gy_hr"]
 	if data.has("neural_sync_rate"): neural_sync_pct = data["neural_sync_rate"]
-	
+
 	_update_ui_labels()
+
+## Callback for OrganTelemetry.organ_healing — mirrors per-organ healing state
+## for the organ inspector / regen HUD indicator.
+func _on_organ_healing(organ_id: String, is_healing: bool) -> void:
+	_organ_healing_states[organ_id] = is_healing
 
 func _process(delta: float) -> void:
 	_reticle_pulse_time += delta
@@ -384,6 +411,24 @@ func _process(delta: float) -> void:
 			if src != Vector3.ZERO:
 				_last_damage_source_pos = src
 				_has_damage_source = true
+
+	# Pull NeuralRegen visual feedback state for the REGENERATING indicator.
+	if _neural_regen_ref and is_instance_valid(_neural_regen_ref):
+		if "regen_visual_intensity" in _neural_regen_ref:
+			_regen_intensity = clampf(float(_neural_regen_ref.regen_visual_intensity), 0.0, 1.0)
+		if _neural_regen_ref.has_method("is_hull_regen_active"):
+			_regen_hull_active = bool(_neural_regen_ref.is_hull_regen_active())
+		if _neural_regen_ref.has_method("is_shield_regen_active"):
+			_regen_shield_active = bool(_neural_regen_ref.is_shield_regen_active())
+	else:
+		_regen_intensity = 0.0
+		_regen_hull_active = false
+		_regen_shield_active = false
+
+	# Sync organ healing states from OrganTelemetry if not already wired via signal.
+	if _telemetry_ref and is_instance_valid(_telemetry_ref) and _telemetry_ref.has_method("get_organ_healing_states"):
+		if _organ_healing_states.is_empty():
+			_organ_healing_states = _telemetry_ref.get_organ_healing_states()
 	else:
 		mouse_flight_cursor = mouse_flight_cursor.lerp(Vector2.ZERO, delta * 3.5)
 		wave_state = 0
@@ -1175,6 +1220,9 @@ func _draw() -> void:
 	# 16. Kill streak display — center-top when streak > 0
 	_draw_kill_streak(center, ui_scale)
 
+	# 17. NeuralRegen bioluminescent regeneration indicator + organ healing status
+	_draw_regen_indicator(center, ui_scale)
+
 ## Draws the planet directional marker: an on-screen reticle when the planet is
 ## visible, or an edge arrow pointing toward it when off-screen, plus a
 ## color-coded distance readout. Color: green (far), yellow (approaching),
@@ -1565,3 +1613,73 @@ func _draw_kill_streak(center: Vector2, ui_scale: float) -> void:
 	var txt: String = "%d KILL STREAK (%.1fx)" % [cs.kill_streak, cs.streak_multiplier]
 	var font_size: int = int(14 * ui_scale)
 	draw_string(font, Vector2(center.x - 80 * ui_scale, 80 * ui_scale), txt, HORIZONTAL_ALIGNMENT_CENTER, -1, font_size, col)
+
+# ------------------------------------------------------------------------------
+# NeuralRegen Bioluminescent Regeneration Indicator
+# ------------------------------------------------------------------------------
+
+## Draws a subtle "REGENERATING" indicator with a cyan-green biopunk pulse when
+## NeuralRegen is active, plus a compact organ-healing status list. The indicator
+## is positioned in the lower-center area above the controls banner so it never
+## obscures the flight reticle or target brackets.
+func _draw_regen_indicator(center: Vector2, ui_scale: float) -> void:
+	# Only render when there is meaningful regen activity.
+	var any_active: bool = _regen_intensity > 0.01 or _regen_hull_active or _regen_shield_active
+	var healing_count: int = 0
+	for organ_id in _organ_healing_states:
+		if bool(_organ_healing_states[organ_id]):
+			healing_count += 1
+	if not any_active and healing_count == 0:
+		return
+
+	var font := get_theme_default_font()
+	if not font:
+		return
+
+	# Bioluminescent cyan-green pulse — organic, breathing rhythm.
+	var pulse: float = 0.5 + sin(_reticle_pulse_time * 3.0) * 0.5
+	var regen_col := Color(0.0, 0.95, 0.55, 0.85)
+	var glow_col := Color(0.0, 1.0, 0.6, clampf(pulse * _regen_intensity, 0.15, 0.9))
+
+	# Position: lower-center, above the controls banner.
+	var box_w: float = 200.0 * ui_scale
+	var box_h: float = 28.0 * ui_scale
+	var box_x: float = center.x - box_w * 0.5
+	var box_y: float = size.y - 80.0 * ui_scale
+
+	# Organic rounded panel background.
+	draw_rect(Rect2(box_x, box_y, box_w, box_h), Color(0.0, 0.08, 0.05, 0.55), true)
+	draw_rect(Rect2(box_x, box_y, box_w, box_h), regen_col, false, maxf(1.0, 1.2 * ui_scale))
+
+	# Pulsing organic icon — a small bio-cell circle to the left.
+	var icon_r: float = 7.0 * ui_scale
+	var icon_pos := Vector2(box_x + 16.0 * ui_scale, box_y + box_h * 0.5)
+	draw_circle(icon_pos, icon_r, glow_col)
+	draw_arc(icon_pos, icon_r, 0, TAU, 24, regen_col, maxf(1.0, 1.2 * ui_scale))
+	# Inner nucleus pulse.
+	draw_circle(icon_pos, icon_r * 0.4 * pulse, Color(0.6, 1.0, 0.85, 0.9))
+
+	# "REGENERATING" label with active subsystem tags.
+	var label_txt := "REGENERATING"
+	var tags: PackedStringArray = PackedStringArray()
+	if _regen_shield_active:
+		tags.append("SHIELD")
+	if _regen_hull_active:
+		tags.append("HULL")
+	if healing_count > 0:
+		tags.append("ORGANS×%d" % healing_count)
+	if tags.size() > 0:
+		label_txt += "  [" + ", ".join(tags) + "]"
+
+	var font_sz := int(maxf(9, 11 * ui_scale))
+	draw_string(font, Vector2(box_x + 30.0 * ui_scale, box_y + box_h * 0.5 + 4 * ui_scale),
+		label_txt, HORIZONTAL_ALIGNMENT_LEFT, -1, font_sz, regen_col)
+
+	# Intensity bar — thin cyan-green progress strip beneath the label.
+	if _regen_intensity > 0.01:
+		var bar_w: float = (box_w - 32.0 * ui_scale)
+		var bar_h: float = 3.0 * ui_scale
+		var bar_x: float = box_x + 16.0 * ui_scale
+		var bar_y: float = box_y + box_h - 6.0 * ui_scale
+		draw_rect(Rect2(bar_x, bar_y, bar_w, bar_h), Color(0.0, 0.2, 0.12, 0.6), true)
+		draw_rect(Rect2(bar_x, bar_y, bar_w * _regen_intensity, bar_h), glow_col, true)

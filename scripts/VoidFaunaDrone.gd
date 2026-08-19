@@ -407,6 +407,14 @@ func _on_destroyed() -> void:
 	ai_state = AIState.DEAD
 	# Spawn explosion VFX
 	CombatVFX.spawn_explosion(global_position, _projectile_color, 1.2)
+	# Organic dissolve: the drone's bio-mesh disintegrates instead of just
+	# popping out of existence. Null-safe — falls back to instant free if the
+	# dissolve shader or mesh is unavailable.
+	var mesh: MeshInstance3D = get_node_or_null("MeshInstance3D") as MeshInstance3D
+	var dissolved: bool = false
+	if mesh and is_instance_valid(mesh):
+		CombatVFX.spawn_dissolve(mesh, _projectile_color, 1.4)
+		dissolved = true
 	# Register kill in combat stats
 	CombatStats.register_kill(drone_class_to_string())
 	var ml := Engine.get_main_loop()
@@ -417,6 +425,9 @@ func _on_destroyed() -> void:
 			audio.play_creature_vocalization(0.6)
 		if _weapon_system_ref and is_instance_valid(_weapon_system_ref):
 			_weapon_system_ref.set_targeted_by_enemy(self, false)
+	if dissolved and is_inside_tree() and get_tree():
+		# Let the dissolve animation play, then free the corpse.
+		await get_tree().create_timer(1.5).timeout
 	queue_free()
 
 func drone_class_to_string() -> String:

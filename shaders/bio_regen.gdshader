@@ -22,6 +22,13 @@ uniform vec4 healthy_color : source_color = vec4(0.0, 0.95, 0.55, 1.0);  // Cyan
 uniform vec4 damaged_color : source_color = vec4(1.0, 0.35, 0.1, 1.0);   // Red-orange
 uniform vec4 vein_color : source_color = vec4(0.1, 0.9, 0.7, 1.0);       // Bio-teal veins
 
+group_uniforms Damage_Map;
+// 2D damage map (R = damage intensity 0..1, G = heal chemical 0..1).
+// Sampled with the mesh UVs. Defaults to white (no damage, full heal) so the
+// overlay is invisible when no damage map is assigned.
+uniform sampler2D damage_map : hint_default_white;
+uniform float damage_map_influence : hint_range(0.0, 1.0, 0.01) = 0.7;
+
 group_uniforms Organic_Pattern;
 uniform float cell_scale : hint_range(1.0, 50.0, 0.5) = 12.0;
 uniform float vein_scale : hint_range(1.0, 30.0, 0.5) = 8.0;
@@ -138,12 +145,23 @@ void fragment() {
 	float pulse = 0.5 + 0.5 * sin(t);
 	float wave = (vein_glow + cell_glow) * pulse;
 
+	// --- Damage map: localized damage (R) and heal chemical (G) from UV ---
+	vec4 dmg_sample = texture(damage_map, UV);
+	float local_damage = dmg_sample.r * damage_map_influence;
+	float local_heal = dmg_sample.g;
+
 	// --- Color blend: healthy (cyan-green) vs damaged (red-orange) ---
-	vec3 color = mix(healthy_color.rgb, damaged_color.rgb, damage_flash);
+	// Combine the global damage_flash (recent hit) with localized damage map.
+	float damage_blend = clamp(damage_flash + local_damage, 0.0, 1.0);
+	vec3 color = mix(healthy_color.rgb, damaged_color.rgb, damage_blend);
 	color = mix(color, vein_color.rgb, vein_glow * 0.3);
 
 	// --- Intensity scales with regen activity ---
-	float intensity = regen_intensity * wave;
+	// Healing areas (high local_heal) glow brighter cyan-green; damaged areas
+	// glow red-orange even at lower global regen intensity.
+	float heal_boost = local_heal * 0.5;
+	float intensity = regen_intensity * wave + local_damage * 0.4 + heal_boost * wave;
+	intensity = clamp(intensity, 0.0, 2.0);
 	float alpha = intensity * 0.7;
 
 	// --- Emissive bioluminescent glow ---

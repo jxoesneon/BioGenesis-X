@@ -1,0 +1,24 @@
+keys,en,es
+NEW_GAME,New Game,Juego Nuevo
+CONTINUE,Continue,Continuar
+LOAD_GAME,Load Game,Cargar Partida
+SETTINGS,Settings,Configuración
+QUIT,Quit,Salir
+GRAPHICS,Graphics,Gráficos
+AUDIO,Audio,Audio
+CONTROLS,Controls,Controles
+GAMEPLAY,Gameplay,Jugabilidad
+LANGUAGE,Language,Idioma
+ACCESSIBILITY,Accessibility,Accesibilidad
+SHIP_STATUS,Ship Status,Estado de la Nave
+WAVE_ENGINE,Wave Engine,Motor de Ondas
+COMBAT,Combat,Combate
+ORGAN_HEALTH,Organ Health,Salud del Órgano
+DESCEND,Descend,Descender
+LAND,Land,Aterrizar
+TAKE_OFF,Take Off,Despegar
+SURFACE,Surface,Superficie
+TARGET_LOCK,Target Lock,Bloqueo de Objetivo
+WEAPONS,Weapons,Armas
+SHIELD,Shield,Escudo
+HULL,Hull,Casco

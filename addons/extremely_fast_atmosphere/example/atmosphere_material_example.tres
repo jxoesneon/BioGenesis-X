@@ -1,4 +1,4 @@
-[gd_resource type="ShaderMaterial" load_steps=16 format=3 uid="uid://bxy405rk64i2m"]
+[gd_resource type="ShaderMaterial" format=3 uid="uid://bxy405rk64i2m"]
 
 [ext_resource type="Shader" uid="uid://dsu80023m2ier" path="res://addons/extremely_fast_atmosphere/atmosphere/atmosphere_fbcosentino.gdshader" id="1_oa70m"]
 
@@ -62,4 +62,5 @@ shader_parameter/direction_profile_back_colors = SubResource("GradientTexture1D_
 shader_parameter/water_depth_profile_colors = SubResource("GradientTexture1D_en63l")
 shader_parameter/sea_level = 100.0
 shader_parameter/atmosphere_radius = 110.0
+shader_parameter/atmosphere_density = 0.2
 shader_parameter/water_density_factor = 1.0

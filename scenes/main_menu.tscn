@@ -1,6 +1,6 @@
-[gd_scene load_steps=3 format=3 uid="uid://c1mainmenu001"]
+[gd_scene format=3 uid="uid://c1mainmenu001"]
 
-[ext_resource type="Script" path="res://scripts/MainMenuUI.gd" id="1_mainmenu"]
+[ext_resource type="Script" uid="uid://c37j3ceb1q4r0" path="res://scripts/MainMenuUI.gd" id="1_mainmenu"]
 
 [sub_resource type="Environment" id="Environment_mainmenu"]
 background_mode = 1
@@ -9,19 +9,17 @@ ambient_light_source = 2
 ambient_light_color = Color(0.04, 0.06, 0.08, 1)
 ambient_light_energy = 0.2
 tonemap_mode = 3
-tonemap_exposure = 1.0
 glow_enabled = true
 glow_intensity = 1.2
 glow_bloom = 0.4
-glow_blend_mode = 1
 glow_hdr_threshold = 0.5
 
-[node name="MainMenu" type="Node3D"]
+[node name="MainMenu" type="Node3D" unique_id=175982522]
 
-[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+[node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=1418648894]
 environment = SubResource("Environment_mainmenu")
 
-[node name="MainMenuUI" type="Control" parent="."]
+[node name="MainMenuUI" type="Control" parent="." unique_id=1256635596]
 layout_mode = 3
 anchors_preset = 15
 anchor_right = 1.0

@@ -50,6 +50,7 @@ var _scroll_audio: ScrollContainer
 var _scroll_gameplay: ScrollContainer
 var _scroll_controls: ScrollContainer
 var _scroll_accessibility: ScrollContainer
+var _scroll_language: ScrollContainer
 
 # --- Section inner VBoxes ---
 var _section_graphics: VBoxContainer
@@ -57,6 +58,7 @@ var _section_audio: VBoxContainer
 var _section_gameplay: VBoxContainer
 var _section_controls: VBoxContainer
 var _section_accessibility: VBoxContainer
+var _section_language: VBoxContainer
 
 func _ready() -> void:
 	set_anchors_and_offsets_preset(PRESET_FULL_RECT)
@@ -107,7 +109,7 @@ func _build_settings_ui() -> void:
 
 	# Title header
 	var lbl_title := Label.new()
-	lbl_title.text = "SETTINGS"
+	lbl_title.text = tr("SETTINGS")
 	lbl_title.add_theme_color_override("font_color", COLOR_TITLE)
 	lbl_title.add_theme_font_size_override("font_size", 28)
 	lbl_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -128,30 +130,37 @@ func _build_settings_ui() -> void:
 	root_vbox.add_child(_tab_container)
 
 	# Build each section — GRAPHICS first (most used in AAA)
-	_scroll_graphics = _build_section_scroll("GRAPHICS", COLOR_ACCENT_GRAPHICS)
+	_scroll_graphics = _build_section_scroll(tr("GRAPHICS"), COLOR_ACCENT_GRAPHICS)
 	_tab_container.add_child(_scroll_graphics)
 	_section_graphics = _get_inner_vbox(_scroll_graphics)
 	_populate_graphics_section()
 
-	_scroll_audio = _build_section_scroll("AUDIO", COLOR_ACCENT_AUDIO)
+	_scroll_audio = _build_section_scroll(tr("AUDIO"), COLOR_ACCENT_AUDIO)
 	_tab_container.add_child(_scroll_audio)
 	_section_audio = _get_inner_vbox(_scroll_audio)
 	_populate_audio_section()
 
-	_scroll_gameplay = _build_section_scroll("GAMEPLAY", COLOR_ACCENT_GAMEPLAY)
+	_scroll_gameplay = _build_section_scroll(tr("GAMEPLAY"), COLOR_ACCENT_GAMEPLAY)
 	_tab_container.add_child(_scroll_gameplay)
 	_section_gameplay = _get_inner_vbox(_scroll_gameplay)
 	_populate_gameplay_section()
 
-	_scroll_controls = _build_section_scroll("CONTROLS", COLOR_ACCENT_CONTROLS)
+	_scroll_controls = _build_section_scroll(tr("CONTROLS"), COLOR_ACCENT_CONTROLS)
 	_tab_container.add_child(_scroll_controls)
 	_section_controls = _get_inner_vbox(_scroll_controls)
 	_populate_controls_section()
 
-	_scroll_accessibility = _build_section_scroll("ACCESSIBILITY", COLOR_ACCENT_ACCESS)
+	_scroll_accessibility = _build_section_scroll(tr("ACCESSIBILITY"), COLOR_ACCENT_ACCESS)
 	_tab_container.add_child(_scroll_accessibility)
 	_section_accessibility = _get_inner_vbox(_scroll_accessibility)
 	_populate_accessibility_section()
+
+	# LANGUAGE section (LocGuard Lite localization)
+	var lang_accent := Color(0.4, 0.9, 1.0)
+	_scroll_language = _build_section_scroll(tr("LANGUAGE"), lang_accent)
+	_tab_container.add_child(_scroll_language)
+	_section_language = _get_inner_vbox(_scroll_language)
+	_populate_language_section()
 
 	root_vbox.add_child(HSeparator.new())
 
@@ -351,6 +360,72 @@ func _populate_accessibility_section() -> void:
 	_add_section_header(vbox, "Motion")
 	_add_checkbox(vbox, "Reduce Motion", "accessibility", "reduce_motion")
 	_add_slider(vbox, "Screen Shake Intensity", "accessibility", "screen_shake_intensity", 0.0, 1.0, 0.05, _format_percent)
+
+# ------------------------------------------------------------------------------
+# LANGUAGE Section (LocGuard Lite localization)
+# ------------------------------------------------------------------------------
+
+func _populate_language_section() -> void:
+	var vbox := _section_language
+
+	_add_section_header(vbox, "Interface Language")
+	_add_language_dropdown(vbox)
+
+	_add_section_header(vbox, "About")
+	var info := Label.new()
+	info.text = "Translations are validated by LocGuard Lite in the editor.\nMissing keys and empty translations are reported automatically."
+	info.add_theme_color_override("font_color", COLOR_SUBTITLE)
+	info.add_theme_font_size_override("font_size", 11)
+	info.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	info.custom_minimum_size = Vector2(600, 0)
+	vbox.add_child(info)
+
+func _add_language_dropdown(parent: VBoxContainer) -> void:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 12)
+	parent.add_child(row)
+
+	var label := Label.new()
+	label.text = "Language"
+	label.custom_minimum_size = Vector2(280, 0)
+	label.add_theme_color_override("font_color", COLOR_LABEL)
+	label.add_theme_font_size_override("font_size", 13)
+	row.add_child(label)
+
+	var dropdown := OptionButton.new()
+	dropdown.custom_minimum_size = Vector2(240, 32)
+	dropdown.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(dropdown)
+
+	var settings_node := _get_settings_system()
+	var supported: Array = []
+	if settings_node and settings_node.has_method("get_supported_languages"):
+		supported = settings_node.get_supported_languages()
+	if supported.is_empty():
+		supported = ["en", "es"]
+
+	var current_code := "en"
+	if settings_node and settings_node.has_method("get_language"):
+		current_code = settings_node.get_language()
+
+	var select_idx := 0
+	for i in range(supported.size()):
+		var code := String(supported[i])
+		var display := code
+		if settings_node and settings_node.has_method("get_language_display_name"):
+			display = settings_node.get_language_display_name(code)
+		dropdown.add_item(display, i)
+		dropdown.set_item_metadata(i, code)
+		if code == current_code:
+			select_idx = i
+	dropdown.select(select_idx)
+
+	dropdown.item_selected.connect(func(idx: int):
+		var code: String = String(dropdown.get_item_metadata(idx))
+		if settings_node and settings_node.has_method("set_language"):
+			settings_node.set_language(code)
+		_play_ui_click(true)
+	)
 
 # ------------------------------------------------------------------------------
 # UI Widget Factory

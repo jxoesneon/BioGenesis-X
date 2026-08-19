@@ -362,7 +362,13 @@ func _setup_material(vein_density_val: float) -> void:
 			
 	if asteroid_material:
 		_ensure_pbr_textures()
-		asteroid_material.set_shader_parameter("texture_albedo", _tex_albedo)
+		# BioTextureGenerator: per-asteroid procedural albedo variation
+		# (mineral grain, bio-crystal veins, regolith craters) keyed by archetype + seed.
+		var bio_albedo: ImageTexture = BioTextureGenerator.generate_asteroid_texture(int(archetype), asteroid_seed)
+		if bio_albedo:
+			asteroid_material.set_shader_parameter("texture_albedo", bio_albedo)
+		else:
+			asteroid_material.set_shader_parameter("texture_albedo", _tex_albedo)
 		asteroid_material.set_shader_parameter("texture_normal", _tex_normal)
 		asteroid_material.set_shader_parameter("texture_roughness", _tex_roughness)
 		asteroid_material.set_shader_parameter("vein_density", vein_density_val)

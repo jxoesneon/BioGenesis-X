@@ -123,6 +123,9 @@ var camera_shake_intensity: float = 0.0
 var camera_shake_multiplier: float = 1.0  # Accessibility: scales shake (0=off, 1=full)
 var invert_y: bool = false  # Accessibility: invert mouse Y axis
 var hull_integrity: float = 100.0  # Hull health [0-100], drives audio DTI
+## True once the Covenant of Symbiosis is sealed — set by CovenantController.
+## Until bonded, the Leviathan is not yet the player's ship.
+var is_bonded: bool = false
 var bio_shield: float = 100.0  # Bio-shield energy [0-100], absorbs damage before hull
 var bio_shield_max: float = 100.0
 var bio_shield_regen_rate: float = 8.0  # Shield regen per second when not taking damage
@@ -132,6 +135,12 @@ var damage_flash_timer: float = 0.0  # Transient damage indicator
 # Energy shield bubble visual (uses the nojoule energy-shield shader). Child of
 # the ship body so it follows the vessel. Driven by bio_shield strength.
 var _shield_visual: BioShieldVisual = null
+# Bio-plasma fuel tank visual — a translucent caustic-fluid sphere mounted on
+# the ship hull whose fill level (Y scale) tracks the bio_plasma_fuel reserve.
+# Uses bio_caustic_fluid.gdshader. Null when the shader isn't available.
+var _fuel_tank_visual: MeshInstance3D = null
+var _fuel_tank_mat: ShaderMaterial = null
+var _fuel_tank_base_scale: float = 1.0
 # Cached Juicee autoload reference (looked up dynamically so the script parses
 # cleanly even when the Juicee singleton isn't registered, e.g. headless tests).
 var _juicee_node: Node = null
@@ -195,6 +204,7 @@ func _ready() -> void:
 	_find_organ_telemetry()
 	_ensure_unified_collision()
 	_setup_shield_visual()
+	_setup_fuel_tank_visual()
 	_init_atmospheric_integration()
 
 ## Calculates physical mass and principal moments of inertia for the entire ship as a single rigid body
@@ -306,6 +316,56 @@ func _setup_shield_visual() -> void:
 	add_child(_shield_visual)
 	_shield_visual.set_strength(bio_shield / maxf(1.0, bio_shield_max))
 
+## Spawns the bio-plasma fuel tank visual — a translucent caustic-fluid reservoir
+## mounted on the dorsal hull whose fill level tracks the bio_plasma_fuel reserve.
+## Uses bio_caustic_fluid.gdshader. Null-safe: no-ops if the shader isn't
+## registered, so the ship still flies normally without the visual.
+func _setup_fuel_tank_visual() -> void:
+	var shader: Shader = ShaderRegistry.get_shader(ShaderRegistry.ID_CAUSTIC_FLUID)
+	if shader == null:
+		return
+	# Size the tank relative to the vessel so it reads on interceptors & leviathans.
+	var tank_radius: float = clampf(vessel_mass_kg / 125000.0, 0.6, 1.6) * 0.9
+	_fuel_tank_base_scale = tank_radius
+	_fuel_tank_visual = MeshInstance3D.new()
+	_fuel_tank_visual.name = "BioPlasmaFuelTank"
+	var sphere := SphereMesh.new()
+	sphere.radius = tank_radius
+	sphere.height = tank_radius * 2.0
+	sphere.radial_segments = 48
+	sphere.rings = 32
+	_fuel_tank_mat = ShaderMaterial.new()
+	_fuel_tank_mat.shader = shader
+	_fuel_tank_mat.set_shader_parameter("caustic_scale", 10.0)
+	_fuel_tank_mat.set_shader_parameter("caustic_speed", 0.5)
+	_fuel_tank_mat.set_shader_parameter("caustic_intensity", 1.6)
+	_fuel_tank_mat.set_shader_parameter("deep_color", Color(0.0, 0.18, 0.22, 0.85))
+	_fuel_tank_mat.set_shader_parameter("shallow_color", Color(0.0, 0.9, 0.7, 0.9))
+	_fuel_tank_mat.set_shader_parameter("caustic_color", Color(1.0, 0.75, 0.2, 1.0))
+	_fuel_tank_mat.set_shader_parameter("emission_boost", 1.4)
+	sphere.material = _fuel_tank_mat
+	_fuel_tank_visual.mesh = sphere
+	_fuel_tank_visual.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	# Mount the tank on the dorsal spine, slightly forward of the geometric center.
+	_fuel_tank_visual.position = Vector3(0.0, 2.2, 1.4)
+	add_child(_fuel_tank_visual)
+	_update_fuel_tank_visual()
+
+## Updates the fuel tank visual fill level from the current bio_plasma_fuel ratio.
+## The tank squashes vertically as the reserve depletes so the player can read
+## fuel state at a glance. No-ops when the visual isn't present.
+func _update_fuel_tank_visual() -> void:
+	if _fuel_tank_visual == null or not is_instance_valid(_fuel_tank_visual):
+		return
+	var ratio: float = clampf(bio_plasma_fuel / maxf(1.0, max_bio_plasma_fuel), 0.0, 1.0)
+	# Squash Y from 1.0 (full) down to 0.15 (near-empty); keep X/Z at full radius.
+	var fill_y: float = lerp(0.15, 1.0, ratio)
+	_fuel_tank_visual.scale = Vector3(1.0, fill_y, 1.0)
+	# Brighten the caustics as the tank empties so low fuel reads as agitated glow.
+	if _fuel_tank_mat:
+		_fuel_tank_mat.set_shader_parameter("emission_boost", lerp(1.0, 2.6, 1.0 - ratio))
+		_fuel_tank_mat.set_shader_parameter("caustic_speed", lerp(0.4, 1.2, 1.0 - ratio))
+
 ## Returns the Juicee autoload node if present (dynamic lookup so the script
 ## parses without the singleton registered). Returns null in headless/test runs.
 func _get_juicee() -> Node:
@@ -400,6 +460,9 @@ func _process(delta: float) -> void:
 				# Keep the shield visual strength in sync as it regenerates.
 				if _shield_visual and is_instance_valid(_shield_visual):
 					_shield_visual.set_strength(bio_shield / maxf(1.0, bio_shield_max))
+	# Keep the bio-plasma fuel tank visual fill in sync with the reserve (fuel
+	# changes in both _handle_bio_boost and the Wave Engine cruise).
+	_update_fuel_tank_visual()
 
 func _physics_process(delta: float) -> void:
 	# Skip normal rotation during wave engine CHARGING/ENGAGED — auto-align handles all rotation

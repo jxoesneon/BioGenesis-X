@@ -45,6 +45,8 @@ QuestWeaverGlobal="*res://addons/quest_weaver/core/quest_weaver_global.gd"
 QuestWeaverServices="*res://addons/quest_weaver/core/quest_weaver_services.gd"
 QuestWeaverGameState="*res://addons/quest_weaver/core/quest_weaver_game_state.gd"
 QuestManager="*res://scripts/QuestManager.gd"
+DebugAPI="*uid://biopn6205fqoo"
+Juicee="*uid://b36fwfvmmv0xc"
 
 [display]
 
@@ -55,7 +57,7 @@ window/stretch/aspect="expand"
 
 [editor_plugins]
 
-enabled=PackedStringArray("res://addons/godot_mcp/plugin.cfg", "res://addons/debug_api/plugin.cfg", "res://addons/dialogue_manager/plugin.cfg", "res://addons/locguard_lite/plugin.cfg", "res://addons/extremely_fast_atmosphere/plugin.cfg", "res://addons/procedural_textures/plugin.cfg", "res://addons/quest_weaver/plugin.cfg", "res://addons/juicee/plugin.cfg", "res://addons/boujie_water_shader/plugin.cfg", "res://addons/godot_shaders_library/plugin.cfg")
+enabled=PackedStringArray("res://addons/godot_mcp/plugin.cfg", "res://addons/debug_api/plugin.cfg", "res://addons/dialogue_manager/plugin.cfg", "res://addons/locguard_lite/plugin.cfg", "res://addons/extremely_fast_atmosphere/plugin.cfg", "res://addons/procedural_textures/plugin.cfg", "res://addons/quest_weaver/plugin.cfg", "res://addons/juicee/plugin.cfg", "res://addons/boujie_water_shader/plugin.cfg")
 
 [input]
 
@@ -72,7 +74,8 @@ abort_descent={
 
 [internationalization]
 
-locale/translations_pot_files=PackedStringArray("res://dialogue/covenant_symbiosis.dialogue")
+locale/translations=PackedStringArray("res://translations/translations.en.translation", "res://translations/translations.es.translation")
+locale/translations_pot_files=PackedStringArray("res://dialogue/covenant_symbiosis.dialogue", "res://translations/translations.csv")
 
 [physics]
 

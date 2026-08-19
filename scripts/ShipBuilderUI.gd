@@ -54,6 +54,10 @@ var lbl_mesh_stats: Label
 var btn_back_main_menu: Button
 var _bio_manager_ref: Node = null
 var _animation_time: float = 0.0
+## Bio-scan hologram overlay mesh (shares the procedural bio-mesh geometry).
+var _hologram_overlay: MeshInstance3D = null
+## ShaderMaterial for the bio-scan hologram overlay (bio_scan_hologram shader).
+var _hologram_mat: ShaderMaterial = null
 
 # 3D Turntable Orbit & Camera Controls
 @export var camera_pivot_node: Node3D = null
@@ -143,6 +147,9 @@ func _update_camera_orbit(delta: float) -> void:
 		turntable_camera_node.rotation = Vector3.ZERO
 
 func _update_mesh_stats() -> void:
+	# Keep the bio-scan hologram overlay in sync with the procedural mesh after
+	# rebuilds (the bio-mesh swaps its ArrayMesh on every rebuild_ship_mesh).
+	_sync_hologram_overlay()
 	if not lbl_mesh_stats:
 		return
 	var verts: int = 0
@@ -171,6 +178,12 @@ func _exit_tree() -> void:
 	if _bio_manager_ref and is_instance_valid(_bio_manager_ref):
 		if _bio_manager_ref.is_connected("ship_configuration_changed", Callable(self, "_on_ship_config_changed")):
 			_bio_manager_ref.disconnect("ship_configuration_changed", Callable(self, "_on_ship_config_changed"))
+	# Free the hologram overlay we parented to the scene root (not our child).
+	# Deferred so it's safe during scene teardown (overlay's parent may already
+	# be mid-free when our _exit_tree runs).
+	if _hologram_overlay and is_instance_valid(_hologram_overlay) and not _hologram_overlay.is_queued_for_deletion():
+		_hologram_overlay.call_deferred("queue_free")
+	_hologram_overlay = null
 
 func _load_initial_values() -> void:
 	if _bio_manager_ref and is_instance_valid(_bio_manager_ref):
@@ -429,6 +442,57 @@ func _find_mesh_node() -> void:
 	var parent := get_parent()
 	if parent:
 		procedural_mesh_node = parent.get_node_or_null("ProceduralBioMesh")
+	# Once the bio-mesh is located, attach the bio-scan hologram overlay so the
+	# builder preview reads as a diagnostic scan of the specimen.
+	if procedural_mesh_node and is_instance_valid(procedural_mesh_node) and _hologram_overlay == null:
+		_setup_hologram_overlay()
+
+## Builds the bio-scan hologram overlay mesh that shares the procedural bio-mesh
+## geometry and renders an additive scan-line + wireframe grid shell on top of
+## it. Null-safe: no-ops if the bio_scan_hologram shader isn't registered.
+func _setup_hologram_overlay() -> void:
+	if procedural_mesh_node == null or not is_instance_valid(procedural_mesh_node):
+		return
+	var shader: Shader = ShaderRegistry.get_shader(ShaderRegistry.ID_SCAN_HOLOGRAM)
+	if shader == null:
+		return
+	var parent: Node = procedural_mesh_node.get_parent()
+	if parent == null:
+		return
+	_hologram_overlay = MeshInstance3D.new()
+	_hologram_overlay.name = "BioScanHologramOverlay"
+	# Share the procedural mesh geometry so the overlay always matches the hull.
+	_hologram_overlay.mesh = procedural_mesh_node.mesh
+	_hologram_overlay.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	# Inherit the same world transform as the bio-mesh (sibling, same position).
+	_hologram_overlay.transform = procedural_mesh_node.transform
+	_hologram_mat = ShaderMaterial.new()
+	_hologram_mat.shader = shader
+	_hologram_mat.set_shader_parameter("scan_speed", 1.2)
+	_hologram_mat.set_shader_parameter("scan_width", 0.06)
+	_hologram_mat.set_shader_parameter("scan_axis", 2.0) # Sweep along Z (ship length)
+	_hologram_mat.set_shader_parameter("flicker_amount", 0.12)
+	_hologram_mat.set_shader_parameter("grid_scale", 34.0)
+	_hologram_mat.set_shader_parameter("grid_intensity", 1.0)
+	_hologram_mat.set_shader_parameter("scan_color", Color(0.0, 0.95, 0.55, 1.0))
+	_hologram_mat.set_shader_parameter("grid_color", Color(0.1, 0.8, 1.0, 1.0))
+	_hologram_mat.set_shader_parameter("rim_color", Color(0.0, 1.0, 0.85, 1.0))
+	_hologram_mat.set_shader_parameter("rim_boost", 1.6)
+	_hologram_overlay.material_override = _hologram_mat
+	# Use call_deferred to avoid "Parent node is busy setting up children" when
+	# _setup_hologram_overlay() is called during _ready().
+	parent.add_child.call_deferred(_hologram_overlay)
+
+## Keeps the hologram overlay mesh in sync with the procedural bio-mesh after
+## each rebuild (the bio-mesh swaps its ArrayMesh on every rebuild_ship_mesh).
+func _sync_hologram_overlay() -> void:
+	if _hologram_overlay == null or not is_instance_valid(_hologram_overlay):
+		return
+	if procedural_mesh_node == null or not is_instance_valid(procedural_mesh_node):
+		return
+	if _hologram_overlay.mesh != procedural_mesh_node.mesh:
+		_hologram_overlay.mesh = procedural_mesh_node.mesh
+		_hologram_overlay.transform = procedural_mesh_node.transform
 
 func _on_archetype_selected(index: int) -> void:
 	_reset_idle_timer()
