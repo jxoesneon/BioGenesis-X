@@ -150,7 +150,6 @@ func _collect_hardware_info() -> void:
 	var rd: RenderingDevice = RenderingServer.get_rendering_device()
 	if rd:
 		print("  RenderingDevice available: %s" % rd.get_device_name())
-		print("  API version: %s" % rd.get_device_api_version())
 	else:
 		print("  RenderingDevice: not available (headless mode)")
 
@@ -188,9 +187,10 @@ func _sample_gpu() -> void:
 	sample["object_count"] = Performance.get_monitor(Performance.RENDER_TOTAL_OBJECTS_IN_FRAME)
 	sample["draw_calls"] = Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME)
 	sample["primitives"] = Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME)
-	sample["video_mem_kb"] = Performance.get_monitor(Performance.RENDER_VIDEO_MEM_USED)
-	sample["texture_mem_kb"] = Performance.get_monitor(Performance.RENDER_TEXTURE_MEM_USED)
-	sample["buffer_mem_kb"] = Performance.get_monitor(Performance.RENDER_BUFFER_MEM_USED)
+	sample["video_mem_mb"] = Performance.get_monitor(Performance.RENDER_VIDEO_MEM_USED) / 1024.0 / 1024.0
+	# RENDER_TEXTURE_MEM_USED returns garbage on Metal (uint64 overflow — known Godot bug).
+	# Track buffer mem instead as a reliable GPU memory proxy.
+	sample["buffer_mem_mb"] = Performance.get_monitor(Performance.RENDER_BUFFER_MEM_USED) / 1024.0 / 1024.0
 
 	# Physics monitors
 	sample["physics_objects"] = Performance.get_monitor(Performance.PHYSICS_3D_ACTIVE_OBJECTS)
@@ -225,7 +225,6 @@ func _summarize_phase(phase: int, samples: Array[Dictionary]) -> Dictionary:
 	var metrics: Array[String] = [
 		"fps", "frame_time_ms", "frame_time_physics_ms",
 		"object_count", "draw_calls", "primitives",
-		"video_mem_kb", "texture_mem_kb", "buffer_mem_kb",
 		"physics_objects", "physics_pairs", "physics_islands",
 		"audio_latency_ms",
 	]
@@ -333,9 +332,8 @@ func _print_phase_report(report: Dictionary) -> void:
 		{"key": "draw_calls", "label": "Draw Calls", "unit": "", "fmt": "%.0f"},
 		{"key": "object_count", "label": "Objects", "unit": "", "fmt": "%.0f"},
 		{"key": "primitives", "label": "Primitives", "unit": "", "fmt": "%.0f"},
-		{"key": "video_mem_kb", "label": "Video Mem", "unit": "KB", "fmt": "%.0f"},
-		{"key": "texture_mem_kb", "label": "Texture Mem", "unit": "KB", "fmt": "%.0f"},
-		{"key": "buffer_mem_kb", "label": "Buffer Mem", "unit": "KB", "fmt": "%.0f"},
+		{"key": "video_mem_mb", "label": "Video Mem", "unit": "MB", "fmt": "%.0f"},
+		{"key": "buffer_mem_mb", "label": "Buffer Mem", "unit": "MB", "fmt": "%.0f"},
 		{"key": "physics_objects", "label": "Physics Objects", "unit": "", "fmt": "%.0f"},
 		{"key": "physics_pairs", "label": "Physics Pairs", "unit": "", "fmt": "%.0f"},
 		{"key": "physics_islands", "label": "Physics Islands", "unit": "", "fmt": "%.0f"},
@@ -366,7 +364,6 @@ func _print_comparison_table() -> void:
 
 	var metrics: Array[String] = [
 		"fps", "frame_time_ms", "draw_calls", "primitives",
-		"video_mem_kb", "texture_mem_kb",
 		"physics_objects", "physics_pairs",
 	]
 
