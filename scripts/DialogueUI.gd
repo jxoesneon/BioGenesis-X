@@ -33,6 +33,9 @@ signal choice_made(key: String)
 ## Typing speed in characters per second (0 = instant).
 @export var typing_speed_cps: float = 60.0
 
+## Key used to toggle skip-to-next-choice mode during dialogue.
+@export var skip_key: Key = KEY_TAB
+
 # --- Internal state ---
 var _resource: DialogueResource = null
 var _extra_game_states: Array = []
@@ -42,6 +45,9 @@ var _is_typing: bool = false
 var _typed_chars: int = 0
 var _type_accum: float = 0.0
 var _result_snapshot: Dictionary = {}
+## When true, dialogue auto-advances instantly until a choice appears or the
+## conversation ends. Activated by the Skip button or the skip_key (TAB).
+var _is_skipping: bool = false
 
 # --- UI nodes (built in code) ---
 var _root: Control = null
@@ -54,6 +60,7 @@ var _responses_container: VBoxContainer = null
 var _button_pool: Array[Button] = []
 const _BUTTON_POOL_SIZE: int = 8
 var _advance_hint: Label = null
+var _skip_button: Button = null
 
 # Biopunk palette
 const _COLOR_BG := Color(0.018, 0.045, 0.038, 0.94)
@@ -151,14 +158,25 @@ func _apply_line(line: DialogueLine) -> void:
 	_dialogue_label.visible_ratio = 0.0
 	_typed_chars = 0
 	_type_accum = 0.0
-	_is_typing = true
 	_advance_hint.hide()
 
 	# Choices
 	if line.responses.size() > 0:
+		# A decision point — stop skipping and show choices.
+		_is_skipping = false
+		_update_skip_button()
 		_is_typing = false
 		_dialogue_label.visible_ratio = 1.0
 		_build_responses(line.responses)
+	elif _is_skipping:
+		# Skip mode: show full text instantly, advance immediately.
+		_is_typing = false
+		_dialogue_label.visible_ratio = 1.0
+		# Advance on the next frame to avoid re-entrancy in the await chain.
+		call_deferred("_skip_advance")
+	else:
+		# Normal: type out the text.
+		_is_typing = true
 
 
 ## Per-frame typing animation and advance-hint visibility.
@@ -183,6 +201,43 @@ func _on_typing_finished() -> void:
 	_dialogue_label.visible_ratio = 1.0
 	if _line and _line.responses.size() == 0:
 		_advance_hint.show()
+
+
+## Advance to the next line during skip mode. Called via call_deferred from
+## _apply_line to avoid re-entrancy in the DialogueManager await chain.
+func _skip_advance() -> void:
+	if not _is_active or not _is_skipping:
+		return
+	if is_instance_valid(_line):
+		_advance_to(_line.next_id)
+
+
+## Toggle skip-to-next-choice mode on/off.
+func toggle_skip() -> void:
+	_is_skipping = not _is_skipping
+	_update_skip_button()
+	if _is_skipping and _is_active and not _is_typing:
+		# If we're on a non-choice line and not typing, start skipping now.
+		if _line and _line.responses.size() == 0:
+			_skip_advance()
+	elif _is_skipping and _is_typing:
+		# If typing, finish instantly and continue skipping.
+		_is_typing = false
+		_dialogue_label.visible_ratio = 1.0
+		_on_typing_finished()
+		_skip_advance()
+
+
+## Update the skip button visual state to reflect _is_skipping.
+func _update_skip_button() -> void:
+	if _skip_button == null or not is_instance_valid(_skip_button):
+		return
+	if _is_skipping:
+		_skip_button.text = "■ Stop Skip"
+		_skip_button.add_theme_color_override("font_color", Color(1.0, 0.5, 0.2))
+	else:
+		_skip_button.text = "▶ Skip [TAB]"
+		_skip_button.add_theme_color_override("font_color", _COLOR_HINT)
 
 
 ## Build a button for each response and wire selection. Uses a button pool
@@ -242,12 +297,18 @@ func _on_response_selected(response: DialogueResponse) -> void:
 
 
 ## Advance to the next line when the player triggers the next action and no
-## choices are currently shown.
+## choices are currently shown. Also handles the skip key (TAB by default).
 func _unhandled_input(event: InputEvent) -> void:
 	if not _is_active or not _is_visible_panel():
 		return
 	if block_other_input:
 		get_viewport().set_input_as_handled()
+
+	# Skip key (TAB) toggles skip-to-next-choice mode
+	if event is InputEventKey and event.pressed and event.keycode == skip_key:
+		toggle_skip()
+		get_viewport().set_input_as_handled()
+		return
 
 	# Skip typing on any accept/click
 	if _is_typing:
@@ -282,6 +343,7 @@ func _end_conversation() -> void:
 		return
 	_is_active = false
 	_is_typing = false
+	_is_skipping = false
 	_line = null
 	# Collect a snapshot of any scalar properties from the provided game states
 	# so callers can inspect dialogue outcomes (e.g. bond_accepted).
@@ -381,12 +443,57 @@ func _build_ui() -> void:
 	# Advance hint
 	_advance_hint = Label.new()
 	_advance_hint.name = "AdvanceHint"
-	_advance_hint.text = "▶  [SPACE / CLICK]  to continue"
+	_advance_hint.text = "▶  [SPACE / CLICK]  to continue  ·  [TAB]  to skip"
 	_advance_hint.add_theme_font_size_override("font_size", 13)
 	_advance_hint.add_theme_color_override("font_color", _COLOR_HINT)
 	_advance_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	_advance_hint.hide()
 	_vbox.add_child(_advance_hint)
+
+	# Skip button — skips through dialogue lines to the next choice point
+	_skip_button = Button.new()
+	_skip_button.name = "SkipButton"
+	_skip_button.text = "▶ Skip [TAB]"
+	_skip_button.add_theme_font_size_override("font_size", 12)
+	_skip_button.add_theme_color_override("font_color", _COLOR_HINT)
+	_skip_button.add_theme_color_override("font_hover_color", Color(1.0, 0.85, 0.3))
+	_skip_button.focus_mode = Control.FOCUS_NONE
+	_skip_button.mouse_filter = Control.MOUSE_FILTER_STOP
+	var skip_sb := StyleBoxFlat.new()
+	skip_sb.bg_color = Color(0.02, 0.06, 0.05, 0.7)
+	skip_sb.border_color = Color(0.0, 0.5, 0.45, 0.4)
+	skip_sb.set_border_width_all(1)
+	skip_sb.set_corner_radius_all(4)
+	skip_sb.content_margin_left = 10
+	skip_sb.content_margin_right = 10
+	skip_sb.content_margin_top = 3
+	skip_sb.content_margin_bottom = 3
+	_skip_button.add_theme_stylebox_override("normal", skip_sb)
+	var skip_hover := StyleBoxFlat.new()
+	skip_hover.bg_color = Color(0.05, 0.15, 0.12, 0.9)
+	skip_hover.border_color = Color(0.0, 0.7, 0.6, 0.7)
+	skip_hover.set_border_width_all(1)
+	skip_hover.set_corner_radius_all(4)
+	skip_hover.content_margin_left = 10
+	skip_hover.content_margin_right = 10
+	skip_hover.content_margin_top = 3
+	skip_hover.content_margin_bottom = 3
+	_skip_button.add_theme_stylebox_override("hover", skip_hover)
+	_skip_button.add_theme_stylebox_override("pressed", skip_hover)
+	# Position at bottom-right of the panel
+	_skip_button.anchor_left = 1.0
+	_skip_button.anchor_top = 1.0
+	_skip_button.anchor_right = 1.0
+	_skip_button.anchor_bottom = 1.0
+	_skip_button.offset_left = -130
+	_skip_button.offset_top = -34
+	_skip_button.offset_right = -12
+	_skip_button.offset_bottom = -8
+	_skip_button.grow_horizontal = Control.GROW_DIRECTION_END
+	_skip_button.grow_vertical = Control.GROW_DIRECTION_END
+	_skip_button.pressed.connect(toggle_skip)
+	_skip_button.visible = false
+	_panel.add_child(_skip_button)
 
 
 func _show_panel() -> void:
@@ -394,6 +501,9 @@ func _show_panel() -> void:
 		_root.visible = true
 	if _panel:
 		_panel.visible = true
+	if _skip_button:
+		_skip_button.visible = true
+		_update_skip_button()
 
 
 func _hide_panel() -> void:
@@ -401,6 +511,8 @@ func _hide_panel() -> void:
 		_root.visible = false
 	if _panel:
 		_panel.visible = false
+	if _skip_button:
+		_skip_button.visible = false
 
 
 func _is_visible_panel() -> bool:
