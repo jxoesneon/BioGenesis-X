@@ -201,6 +201,13 @@ func _instantiate_host_star() -> void:
 	sun_light.light_color = star_col
 	sun_light.light_energy = 2.0
 	sun_light.shadow_enabled = true
+	# Limit shadow distance to 30 km — only near-field objects cast shadows.
+	# Previous: no limit (defaulted to camera far = 5000 km), causing shadow
+	# pass to render all objects. See DOCKET_20260820_SPATIAL_MISMATCH_AUDIT.md.
+	sun_light.directional_shadow_max_distance = 30000.0  # 30 km
+	# Use orthogonal shadow mode (1 pass) instead of PSSM 4 splits (4 passes).
+	# At 30km shadow distance, orthogonal provides adequate resolution.
+	sun_light.directional_shadow_mode = DirectionalLight3D.SHADOW_ORTHOGONAL
 	# Directional light looks from a position toward origin — since star is at origin,
 	# offset the light to illuminate from the star's "surface" outward
 	sun_light.look_at_from_position(Vector3(0.0, star_visual_radius * 0.5, star_visual_radius), Vector3.ZERO, Vector3.UP)

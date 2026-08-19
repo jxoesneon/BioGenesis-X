@@ -57,16 +57,23 @@ const ProceduralAsteroidMeshClass: GDScript = preload("res://scripts/ProceduralA
 const VoidFaunaDroneClass: GDScript = preload("res://scripts/VoidFaunaDrone.gd")
 
 # --- Chunk grid configuration ---
-const FAR_CHUNK_SIZE_AU: float = 1.0
-const FAR_CHUNK_SIZE_M: float = FAR_CHUNK_SIZE_AU * 149597870700.0
-const NEAR_CHUNK_SIZE_AU: float = 0.01
-const NEAR_CHUNK_SIZE_M: float = NEAR_CHUNK_SIZE_AU * 149597870700.0
+# Visibility-based chunk sizes (DOCKET_20260820_SPATIAL_MISMATCH_AUDIT.md, Option L/T).
+# Previous: 0.01 AU near (1.5M km), 1.0 AU far (150M km) — asteroids were at
+# 75,000+ km, far beyond the camera's 5,000 km far clip. All invisible.
+# New: 10 km near, 100 km far — asteroids within visible range of the camera.
+# True astronomical positions are tracked via the floating origin system (Option S).
+const FAR_CHUNK_SIZE_KM: float = 100.0
+const FAR_CHUNK_SIZE_M: float = FAR_CHUNK_SIZE_KM * 1000.0
+const NEAR_CHUNK_SIZE_KM: float = 10.0
+const NEAR_CHUNK_SIZE_M: float = NEAR_CHUNK_SIZE_KM * 1000.0
 
 # --- Streaming radii (how many chunks around the ship to load) ---
-const FAR_STREAM_RADIUS_CHUNKS: int = 3      # 3 chunks = 3 AU radius
-# Council-approved reduction (DOCKET_20260820_PRIMITIVE_BUDGET_AUDIT_2.md):
-# 4→3 reduces near chunk grid from 9×9=81 to 7×7=49, saving ~864K prims.
-const NEAR_STREAM_RADIUS_CHUNKS: int = 3      # 3 chunks = 0.03 AU = 4.5M km radius
+# 2 far chunks = 200 km radius (within 500 km camera far clip)
+# 2 near chunks = 20 km radius (close interaction range)
+# Previous: 3/3 (49+49 chunks). Reduced to 2/2 (25+25) to cut object count.
+# See DOCKET_20260820_SPATIAL_MISMATCH_AUDIT.md.
+const FAR_STREAM_RADIUS_CHUNKS: int = 2      # 2 chunks = 200 km radius
+const NEAR_STREAM_RADIUS_CHUNKS: int = 2      # 2 chunks = 20 km radius
 
 # --- LOD tiers ---
 enum LOD {
@@ -83,10 +90,9 @@ const MAX_CHUNKS_UNLOADED_PER_FRAME: int = 1
 const MAX_FRAME_TIME_MS: float = 8.0  # Stop loading if frame would exceed 8ms
 
 # --- Element caps per chunk ---
-const MAX_ASTEROIDS_PER_FAR_CHUNK: int = 40
-# Council-approved reduction (DOCKET_20260820_PRIMITIVE_BUDGET_AUDIT_2.md):
-# 15→8 halves near-field asteroid density, saving ~1.09M prims.
-const MAX_ASTEROIDS_PER_NEAR_CHUNK: int = 8
+const MAX_ASTEROIDS_PER_FAR_CHUNK: int = 10  # Was 40 (AU-scale). Reduced for km-scale chunks.
+# Reduced from 8 to 5 for km-scale chunks (DOCKET_20260820_SPATIAL_MISMATCH_AUDIT.md).
+const MAX_ASTEROIDS_PER_NEAR_CHUNK: int = 5
 const MAX_ENEMIES_PER_NEAR_CHUNK: int = 3
 const MAX_ANOMALIES_PER_FAR_CHUNK: int = 2
 const MAX_HAZARDS_PER_FAR_CHUNK: int = 1
@@ -125,7 +131,7 @@ var _unloaded_this_frame: int = 0
 var _asteroid_mesh_cache: ArrayMesh = null
 # Low-poly mesh for far-field MultiMesh chunks (icosahedron, ~20 prims).
 # Council-mandated: use icosahedron instead of subdivision_level=1 (~384 prims)
-# for a 67× primitive reduction at 1-3 AU where asteroids are sub-pixel specks.
+# for a 67× primitive reduction at 100-300 km where asteroids are small specks.
 # See DOCKET_20260820_PRIMITIVE_BUDGET_AUDIT.md
 var _asteroid_mesh_cache_far: ArrayMesh = null
 # Cached collision shape — avoids per-asteroid create_convex_shape() calls
@@ -175,10 +181,12 @@ func _on_grids_ready() -> void:
 func _build_mesh_cache() -> void:
 	if _asteroid_mesh_cache:
 		return
-	# Near-field mesh: high detail (subdivision_level=2, ~2700 prims)
+	# Near-field mesh: medium detail (subdivision_level=1, ~768 prims).
+	# Was subdivision_level=2 (~3072 prims). Reduced for km-scale chunks where
+	# asteroids are closer and smaller. See DOCKET_20260820_SPATIAL_MISMATCH_AUDIT.md.
 	var gen: Object = ProceduralAsteroidMeshClass.new()
 	gen.base_radius = 6.0
-	gen.subdivision_level = 2
+	gen.subdivision_level = 1
 	gen.displacement_roughness = 0.45
 	gen.archetype = ProceduralAsteroidMeshClass.AsteroidArchetype.SILICATE_S_TYPE
 	gen.asteroid_seed = 12345
@@ -187,10 +195,10 @@ func _build_mesh_cache() -> void:
 	if _asteroid_mesh_cache:
 		_asteroid_collision_cache = _asteroid_mesh_cache.create_convex_shape(true, true)
 	gen.queue_free()
-	# Far-field mesh: icosahedron (~20 prims) for MultiMesh chunks at 1-3 AU.
+	# Far-field mesh: icosahedron (~20 prims) for MultiMesh chunks at 100-300 km.
 	# Council mandate (DOCKET_20260820): icosahedron is 135× lighter than the
-	# near mesh and 19× lighter than sub_level=1. At 1-3 AU distance asteroids
-	# are sub-pixel specks — silhouette accuracy is irrelevant.
+	# near mesh and 19× lighter than sub_level=1. At 100-300 km distance asteroids
+	# are small specks — silhouette accuracy is irrelevant.
 	_asteroid_mesh_cache_far = _build_icosahedron_mesh(6.0)
 
 
@@ -418,13 +426,24 @@ func _dispatch_threaded_chunk_load(req: Dictionary) -> void:
 		(float(cz) + 0.5) * chunk_size_m
 	)
 
+	# Get the floating origin offset so noise sampling uses true astronomical position.
+	# Render coordinates are near origin (km-scale), but the noise field expects
+	# AU-scale coordinates. true_center = render_center + origin_offset.
+	# See DOCKET_20260820_SPATIAL_MISMATCH_AUDIT.md, Option S.
+	var origin_offset: Vector3 = Vector3.ZERO
+	var ship: Node3D = _ship_node
+	if ship and ship.has_method("get_origin_offset"):
+		origin_offset = ship.get_origin_offset()
+	var true_center: Vector3 = center_m + origin_offset
+
 	# Dispatch to worker thread
 	var params: Dictionary = {
 		"key": key,
 		"type": chunk_type,
 		"cx": cx,
 		"cz": cz,
-		"center": center_m,
+		"center": center_m,         # Render position (for node placement)
+		"true_center": true_center,  # True position (for noise sampling)
 		"chunk_size": chunk_size_m,
 		"system_seed": _system_seed,
 	}
@@ -438,6 +457,7 @@ func _worker_generate_chunk_data(params: Dictionary) -> void:
 	var key: String = params["key"]
 	var chunk_type: String = params["type"]
 	var center_m: Vector3 = params["center"]
+	var true_center: Vector3 = params["true_center"]
 	var chunk_size_m: float = params["chunk_size"]
 	var system_seed: int = params["system_seed"]
 
@@ -457,13 +477,15 @@ func _worker_generate_chunk_data(params: Dictionary) -> void:
 	rng.seed = chunk_seed
 
 	if chunk_type == "far":
-		# Sample noise density (thread-safe read)
+		# Sample noise density using TRUE astronomical position (not render position).
+		# The noise field grid covers 60 AU — render coordinates (km-scale near origin)
+		# would all map to the same grid cell. True position preserves spatial variation.
 		var res_density: Dictionary = _noise_field.sample_channel_region(
-			SystemNoiseFieldClass.Channel.RESOURCES, center_m, chunk_size_m * 0.5)
+			SystemNoiseFieldClass.Channel.RESOURCES, true_center, chunk_size_m * 0.5)
 		var anomaly_density: Dictionary = _noise_field.sample_channel_region(
-			SystemNoiseFieldClass.Channel.ANOMALIES, center_m, chunk_size_m * 0.5)
+			SystemNoiseFieldClass.Channel.ANOMALIES, true_center, chunk_size_m * 0.5)
 		var hazard_density: Dictionary = _noise_field.sample_channel_region(
-			SystemNoiseFieldClass.Channel.HAZARDS, center_m, chunk_size_m * 0.5)
+			SystemNoiseFieldClass.Channel.HAZARDS, true_center, chunk_size_m * 0.5)
 
 		var asteroid_count: int = mini(int(res_density.avg * float(MAX_ASTEROIDS_PER_FAR_CHUNK)), MAX_ASTEROIDS_PER_FAR_CHUNK)
 		var anomaly_count: int = 0
@@ -474,6 +496,8 @@ func _worker_generate_chunk_data(params: Dictionary) -> void:
 			hazard_count = mini(int((hazard_density.avg - 0.6) * 10.0), MAX_HAZARDS_PER_FAR_CHUNK)
 
 		# Generate transforms on the thread (expensive loop, no scene tree access)
+		# Far-field asteroid scale: 1-10x (6-60m radius) — visible at 100-300 km.
+		# Previous: 200-2000x for AU-scale chunks (DOCKET_20260820_SPATIAL_MISMATCH_AUDIT.md).
 		var transforms: Array[Transform3D] = []
 		for i in range(asteroid_count):
 			var local_pos := Vector3(
@@ -481,7 +505,7 @@ func _worker_generate_chunk_data(params: Dictionary) -> void:
 				rng.randf_range(-chunk_size_m * 0.1, chunk_size_m * 0.1),
 				rng.randf_range(-chunk_size_m * 0.45, chunk_size_m * 0.45)
 			)
-			var scl: float = rng.randf_range(200.0, 2000.0)
+			var scl: float = rng.randf_range(1.0, 10.0)
 			var rot := Vector3(rng.randf() * TAU, rng.randf() * TAU, rng.randf() * TAU)
 			transforms.append(Transform3D(Basis.from_euler(rot).scaled(Vector3.ONE * scl), local_pos))
 
@@ -512,10 +536,11 @@ func _worker_generate_chunk_data(params: Dictionary) -> void:
 		result["rng_state"] = rng.randi()  # Continue RNG for beacon spawning
 
 	else:  # near
+		# Sample noise using TRUE astronomical position (see far-field comment above).
 		var res_density: Dictionary = _noise_field.sample_channel_region(
-			SystemNoiseFieldClass.Channel.RESOURCES, center_m, chunk_size_m * 0.5)
+			SystemNoiseFieldClass.Channel.RESOURCES, true_center, chunk_size_m * 0.5)
 		var enemy_density: Dictionary = _noise_field.sample_channel_region(
-			SystemNoiseFieldClass.Channel.ENEMIES, center_m, chunk_size_m * 0.5)
+			SystemNoiseFieldClass.Channel.ENEMIES, true_center, chunk_size_m * 0.5)
 
 		var asteroid_count: int = mini(int(res_density.avg * float(MAX_ASTEROIDS_PER_NEAR_CHUNK)), MAX_ASTEROIDS_PER_NEAR_CHUNK)
 		var enemy_count: int = mini(int(enemy_density.avg * float(MAX_ENEMIES_PER_NEAR_CHUNK)), MAX_ENEMIES_PER_NEAR_CHUNK)
@@ -627,6 +652,12 @@ func _mount_far_chunk_from_data(data: Dictionary) -> void:
 
 		mm_inst.multimesh = mm
 		mm_inst.add_to_group("celestial_bodies")
+		# Visibility range: cull far-field MultiMesh beyond 500 km (safety net).
+		# With floating origin keeping coordinates small, frustum culling should
+		# handle most cases. This ensures sub-pixel distant asteroids are culled.
+		mm_inst.visibility_range_end = 500000.0  # 500 km
+		mm_inst.visibility_range_end_margin = 50000.0  # 50 km fade
+		mm_inst.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF
 		chunk_node.add_child(mm_inst)
 
 	# Spawn anomaly beacons
@@ -724,6 +755,13 @@ func _spawn_physics_asteroid_from_data(parent: Node3D, data: Dictionary, res_val
 
 	var mesh_inst := MeshInstance3D.new()
 	mesh_inst.mesh = _asteroid_mesh_cache
+	# Visibility range: cull near-field asteroids beyond 50 km (safety net).
+	# Near chunks span 30 km radius, so 50 km cull distance covers the stream
+	# with a margin. Frustum culling handles off-screen asteroids; this handles
+	# distant but on-screen sub-pixel asteroids.
+	mesh_inst.visibility_range_end = 50000.0  # 50 km
+	mesh_inst.visibility_range_end_margin = 5000.0  # 5 km fade
+	mesh_inst.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF
 	body.add_child(mesh_inst)
 
 	var col := CollisionShape3D.new()

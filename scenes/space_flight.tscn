@@ -282,7 +282,7 @@ omni_attenuation = 1.5
 transform = Transform3D(-1, 0, 8.742278e-08, 0, 1, 0, -8.742278e-08, 0, -1, 0, -0.0029468536, 14.478312)
 fov = 80.0
 near = 0.5
-far = 5000000.0
+far = 500000.0
 
 [node name="CockpitOmniLight3D" type="OmniLight3D" parent="PlayerShip" unique_id=2052741353]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.8, 4.8)
@@ -301,7 +301,7 @@ spring_length = 12.0
 transform = Transform3D(1, 0, 0, 0, 0.9999998, 0, 0, 0, 0.9999998, 0, 2.620758, 0.70223045)
 current = true
 near = 0.5
-far = 5000000.0
+far = 500000.0
 
 [node name="FlightHUD" type="Control" parent="." unique_id=1605828504]
 layout_mode = 3

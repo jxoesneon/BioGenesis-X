@@ -1349,12 +1349,26 @@ func _integrate_movement(_delta: float) -> void:
 	_apply_floating_origin()
 
 ## Floating origin system: shifts all celestial bodies by the inverse of the
-## ship's position when the ship exceeds the precision threshold. This keeps
-## the ship near the world origin where float32 precision is highest (~0.01m).
-## At 1 AU (149.6M km) without floating origin, precision would be ~16km.
-const _FLOATING_ORIGIN_THRESHOLD_M: float = 50000.0 ## 50km from origin triggers shift
+## ship's position EVERY FRAME. This keeps the ship at (0,0,0) where float32
+## precision is highest (~0.01m), enabling correct frustum culling at any
+## astronomical distance.
+##
+## The true position is tracked as a double-precision GDScript variable
+## (GDScript float = 64-bit double). The render position (Node3D.global_position)
+## is always near origin. True position = render_position + _origin_offset_d.
+##
+## At 1 AU (149.6M km) without floating origin, float32 precision is ~16km.
+## With per-frame floating origin, render coordinates stay within a few km of
+## origin, giving ~0.01m precision everywhere.
+##
+## Cost: ~600 Vector3 additions per frame — negligible (confirmed by Outer Wilds:
+## "it doesn't actually really do anything to performance").
+## See DOCKET_20260820_SPATIAL_MISMATCH_AUDIT.md, Option S.
+var _origin_offset_d: Vector3 = Vector3.ZERO  # Double-precision true origin offset (GDScript float = double)
 var _floating_origin_bodies: Array[Node3D] = []
 var _floating_origin_populated: bool = false
+const _FLOATING_ORIGIN_THRESHOLD_M: float = 0.0  # 0 = shift every frame
+
 func _apply_floating_origin() -> void:
 	if not is_inside_tree():
 		return
@@ -1364,7 +1378,10 @@ func _apply_floating_origin() -> void:
 		return
 	# Shift everything by the inverse of the ship's position.
 	var shift: Vector3 = -ship_pos
-	# Move the ship to near-origin.
+	# Track the cumulative origin offset in double precision (GDScript float = double).
+	# This is the "true" position of the ship in astronomical coordinates.
+	_origin_offset_d += shift
+	# Move the ship to origin.
 	global_position = Vector3.ZERO
 	# Cache celestial bodies on first use to avoid get_nodes_in_group() every frame.
 	if not _floating_origin_populated:
@@ -1386,6 +1403,18 @@ func _apply_floating_origin() -> void:
 	var universe: Node = tree.root.get_node_or_null("SpaceFlight/UniverseManager")
 	if universe != null and universe is Node3D:
 		(universe as Node3D).global_position += shift
+
+## Returns the ship's true position in astronomical coordinates (double precision).
+## Use this for game logic that needs real distances (orbits, warp, etc.).
+func get_true_position() -> Vector3:
+	return _origin_offset_d + global_position
+
+## Returns the current origin offset (the cumulative shift applied by floating origin).
+## Other systems can use this to convert between render and true coordinates:
+##   true_position = render_position + get_origin_offset()
+##   render_position = true_position - get_origin_offset()
+func get_origin_offset() -> Vector3:
+	return _origin_offset_d
 
 ## Calculates acceleration and resultant G-Forces.
 func _calculate_g_forces(delta: float) -> void:
