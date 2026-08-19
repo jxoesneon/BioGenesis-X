@@ -145,7 +145,7 @@ static func clear_cached_asteroid(type: int, seed_value: int, size: int = -1) ->
 
 ## Clears the texture cache if its size exceeds half of MAX_CACHE_SIZE.
 static func clear_cache_if_needed() -> void:
-	if _cache.size() > MAX_CACHE_SIZE / 2:
+	if _cache.size() > MAX_CACHE_SIZE / 2.0:
 		_cache.clear()
 		_cache_order.clear()
 

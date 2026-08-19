@@ -60,5 +60,5 @@ func get_objective(role: String) -> String:
 	return objective_ids.get(role, "")
 
 
-func has_prerequisite(quest_id: String) -> bool:
-	return quest_id in prerequisites
+func has_prerequisite(other_quest_id: String) -> bool:
+	return other_quest_id in prerequisites

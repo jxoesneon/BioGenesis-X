@@ -348,6 +348,8 @@ func _move_toward(target: Vector3, delta: float, speed: float) -> void:
 		velocity = desired_velocity
 
 func _look_at_smooth(target: Vector3) -> void:
+	if global_position.is_equal_approx(target):
+		return
 	var dir: Vector3 = (target - global_position).normalized()
 	if abs(dir.dot(Vector3.UP)) < 0.99:
 		look_at(target, Vector3.UP)

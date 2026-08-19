@@ -24,7 +24,8 @@ var is_missile: bool = false
 signal projectile_hit(hit_point: Vector3, hit_shield: bool, target_killed: bool)
 ## Emitted when the projectile is deactivated (impact or lifetime expired).
 ## Consumed by WeaponSystem's object pool to return this instance to the pool.
-signal projectile_deactivated
+## Passes self so the pool handler knows which projectile to recycle.
+signal projectile_deactivated(proj: BioPlasmaProjectile)
 
 # --- Homing (ported from All Projectiles seek_target technique) ---
 ## If set and homing_enabled, the projectile steers toward this node every frame.
@@ -392,6 +393,6 @@ func _deactivate() -> void:
 	# Move far off-screen so it can't be picked up by overlap/proximity checks
 	# while idle in the pool.
 	global_position = Vector3(1e9, 1e9, 1e9)
-	projectile_deactivated.emit()
+	projectile_deactivated.emit(self)
 	if not is_pooled:
 		queue_free()

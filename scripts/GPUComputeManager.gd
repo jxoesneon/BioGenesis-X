@@ -89,7 +89,7 @@ func get_shader_rid(shader_name: String) -> RID:
 
 ## Creates a storage buffer of the given size (bytes) initialized with data.
 ## Returns an empty RID if the RD is unavailable or creation fails.
-func create_storage_buffer(data: PackedByteArray, name: String = "") -> RID:
+func create_storage_buffer(data: PackedByteArray, _name: String = "") -> RID:
 	var rd: RenderingDevice = get_rendering_device()
 	if rd == null:
 		return RID()
@@ -101,7 +101,7 @@ func create_storage_buffer(data: PackedByteArray, name: String = "") -> RID:
 
 ## Creates a uniform buffer of the given size (bytes) initialized with data.
 ## Returns an empty RID if the RD is unavailable or creation fails.
-func create_uniform_buffer(data: PackedByteArray, name: String = "") -> RID:
+func create_uniform_buffer(data: PackedByteArray, _name: String = "") -> RID:
 	var rd: RenderingDevice = get_rendering_device()
 	if rd == null:
 		return RID()
