@@ -114,6 +114,11 @@ var _unloaded_this_frame: int = 0
 
 # Asteroid mesh cache for MultiMesh (shared across far chunks)
 var _asteroid_mesh_cache: ArrayMesh = null
+# Low-poly mesh for far-field MultiMesh chunks (icosahedron, ~20 prims).
+# Council-mandated: use icosahedron instead of subdivision_level=1 (~384 prims)
+# for a 67× primitive reduction at 1-3 AU where asteroids are sub-pixel specks.
+# See DOCKET_20260820_PRIMITIVE_BUDGET_AUDIT.md
+var _asteroid_mesh_cache_far: ArrayMesh = null
 # Cached collision shape — avoids per-asteroid create_convex_shape() calls
 var _asteroid_collision_cache: ConvexPolygonShape3D = null
 
@@ -161,6 +166,7 @@ func _on_grids_ready() -> void:
 func _build_mesh_cache() -> void:
 	if _asteroid_mesh_cache:
 		return
+	# Near-field mesh: high detail (subdivision_level=2, ~2700 prims)
 	var gen: Object = ProceduralAsteroidMeshClass.new()
 	gen.base_radius = 6.0
 	gen.subdivision_level = 2
@@ -172,6 +178,59 @@ func _build_mesh_cache() -> void:
 	if _asteroid_mesh_cache:
 		_asteroid_collision_cache = _asteroid_mesh_cache.create_convex_shape(true, true)
 	gen.queue_free()
+	# Far-field mesh: icosahedron (~20 prims) for MultiMesh chunks at 1-3 AU.
+	# Council mandate (DOCKET_20260820): icosahedron is 135× lighter than the
+	# near mesh and 19× lighter than sub_level=1. At 1-3 AU distance asteroids
+	# are sub-pixel specks — silhouette accuracy is irrelevant.
+	_asteroid_mesh_cache_far = _build_icosahedron_mesh(6.0)
+
+
+## Builds a simple icosahedron mesh with the given radius.
+## 12 vertices, 20 triangular faces — the minimum viable asteroid silhouette.
+func _build_icosahedron_mesh(radius: float) -> ArrayMesh:
+	var t := (1.0 + sqrt(5.0)) / 2.0
+	var verts: PackedVector3Array = PackedVector3Array([
+		Vector3(-1,  t,  0), Vector3( 1,  t,  0),
+		Vector3(-1, -t,  0), Vector3( 1, -t,  0),
+		Vector3( 0, -1,  t), Vector3( 0,  1,  t),
+		Vector3( 0, -1, -t), Vector3( 0,  1, -t),
+		Vector3( t,  0, -1), Vector3( t,  0,  1),
+		Vector3(-t,  0, -1), Vector3(-t,  0,  1),
+	])
+	# Normalize to radius
+	for i in range(verts.size()):
+		verts[i] = verts[i].normalized() * radius
+	# 20 triangular faces (icosahedron)
+	var indices: PackedInt32Array = PackedInt32Array([
+		0, 11,  5,   0,  5,  1,   0,  1,  7,   0,  7, 10,   0, 10, 11,
+		1,  5,  9,   5, 11,  4,  11, 10,  2,  10,  7,  6,   7,  1,  8,
+		3,  9,  4,   3,  4,  2,   3,  2,  6,   3,  6,  8,   3,  8,  9,
+		4,  9,  5,   2,  4, 11,   6,  2, 10,   8,  6,  7,   9,  8,  1,
+	])
+	var arrays: Array = []
+	arrays.resize(ArrayMesh.ARRAY_MAX)
+	arrays[ArrayMesh.ARRAY_VERTEX] = verts
+	arrays[ArrayMesh.ARRAY_INDEX] = indices
+	# Generate simple normals for lighting
+	arrays[ArrayMesh.ARRAY_NORMAL] = _generate_normals(verts, indices)
+	var mesh := ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	return mesh
+
+
+## Generates per-vertex normals for a triangle mesh (flat shading).
+func _generate_normals(verts: PackedVector3Array, indices: PackedInt32Array) -> PackedVector3Array:
+	var normals := PackedVector3Array()
+	normals.resize(verts.size())
+	for i in range(0, indices.size(), 3):
+		var v0: Vector3 = verts[indices[i]]
+		var v1: Vector3 = verts[indices[i + 1]]
+		var v2: Vector3 = verts[indices[i + 2]]
+		var normal: Vector3 = (v1 - v0).cross(v2 - v0).normalized()
+		normals[indices[i]] = normal
+		normals[indices[i + 1]] = normal
+		normals[indices[i + 2]] = normal
+	return normals
 
 # --- Main processing loop ---
 var _process_count: int = 0
@@ -541,12 +600,14 @@ func _mount_far_chunk_from_data(data: Dictionary) -> void:
 	chunk_node.add_to_group("celestial_bodies")
 
 	# Spawn asteroids as MultiMesh (thread pre-computed transforms)
-	if asteroid_count > 0 and _asteroid_mesh_cache:
+	# Uses the low-poly far-field mesh (icosahedron, ~20 prims) — see
+	# DOCKET_20260820_PRIMITIVE_BUDGET_AUDIT.md for council rationale.
+	if asteroid_count > 0 and _asteroid_mesh_cache_far:
 		var mm_inst := MultiMeshInstance3D.new()
 		mm_inst.name = "FarAsteroids"
 		var mm := MultiMesh.new()
 		mm.transform_format = MultiMesh.TRANSFORM_3D
-		mm.mesh = _asteroid_mesh_cache
+		mm.mesh = _asteroid_mesh_cache_far
 		mm.instance_count = asteroid_count
 
 		for i in range(asteroid_count):
