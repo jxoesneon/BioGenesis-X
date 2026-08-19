@@ -1,4 +1,3 @@
-class_name BioInventoryController
 extends Node
 
 ## ============================================================================
@@ -8,6 +7,9 @@ extends Node
 ## Joins the "inventory_controller" group so the adapter can find it.
 ## Stores bio-resources (spores, plasma fuel, tissue samples, etc.) that quests
 ## can give/take/check via Quest Weaver's Give/Take/Check Item nodes.
+##
+## Registered as an autoload singleton (see project.godot) so it is available
+## before Quest Weaver initializes. Access globally as `BioInventoryController`.
 ## ============================================================================
 
 signal inventory_changed
