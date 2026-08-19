@@ -374,6 +374,22 @@ func _process(_delta: float) -> void:
 	if _container == null:
 		return
 
+	# Hide POI indicators when the galaxy map camera is active — the galaxy
+	# map has its own navigation UI and in-system POI markers are meaningless
+	# at galactic scale.
+	if _camera is GalaxyMapCamera:
+		if _container.visible:
+			_container.visible = false
+		return
+	# Also hide during dialogue so markers don't clutter the conversation.
+	if _is_dialogue_active():
+		if _container.visible:
+			_container.visible = false
+		return
+	# Re-enable if previously hidden
+	if not _container.visible:
+		_container.visible = true
+
 	_viewport_size = get_viewport().get_visible_rect().size
 	var margin: float = 60.0
 
@@ -623,3 +639,12 @@ func _exit_tree() -> void:
 		if is_instance_valid(edge_diamond):
 			edge_diamond.queue_free()
 	_system_indicators.clear()
+
+## Returns true if a DialogueUI is currently active (conversation in progress).
+func _is_dialogue_active() -> bool:
+	var ml := Engine.get_main_loop()
+	if ml is SceneTree and ml.root:
+		for child in ml.root.get_children():
+			if child is DialogueUI and child.is_active():
+				return true
+	return false
