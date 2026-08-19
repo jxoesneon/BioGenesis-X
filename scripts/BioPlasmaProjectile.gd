@@ -234,6 +234,10 @@ func _apply_impact(target: Node, hit_point: Vector3 = Vector3.ZERO) -> void:
 	# 7. Notify HUD for hit markers
 	_notify_hit_marker(hit_shield, target_killed)
 
+	# 8. Register hit in combat stats
+	CombatStats.register_projectile_hit()
+	CombatStats.register_damage_dealt(damage)
+
 	# Audio Telemetry: Impact Detonation
 	var ml := Engine.get_main_loop()
 	if ml is SceneTree and ml.root and ml.root.has_node("BioAudioSynth"):

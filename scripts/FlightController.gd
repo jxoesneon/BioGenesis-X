@@ -895,6 +895,7 @@ func _handle_thrust(delta: float) -> void:
 ## Called when the ship takes damage (from BioPlasmaProjectile, collisions, etc.)
 ## Shield absorbs damage first, then hull. Triggers shield_hit/hull_hit signals.
 func take_damage(amount: float) -> void:
+	CombatStats.register_damage_received(amount)
 	var remaining_damage: float = amount
 	# Shield absorbs first
 	if bio_shield > 0.0:
@@ -929,6 +930,8 @@ func take_damage(amount: float) -> void:
 var _is_dead: bool = false
 
 func _on_ship_death() -> void:
+	# Register death in combat stats
+	CombatStats.register_death()
 	# Spawn explosion at ship position
 	CombatVFX.spawn_explosion(global_position, Color(0.0, 1.0, 0.75, 1.0), 2.0)
 	# Big camera shake

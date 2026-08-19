@@ -69,6 +69,30 @@ var _hit_marker_is_kill: bool = false
 # Damage flash overlay intensity (0-1), drives red screen vignette
 var _damage_flash_visual: float = 0.0
 
+# --- Advanced Targeting State ---
+# Cached list of valid trackable targets in the "targets" group (refreshed each
+# frame by _update_target_tracking_3d). Used by Tab cycling.
+var _target_list_cache: Array = []
+# Index into _target_list_cache for the manually-selected target (-1 = none).
+var _current_target_index: int = -1
+# The Node3D currently being tracked (set by auto-select or manual Tab cycling).
+var _current_target_node: Node3D = null
+# When set via Tab cycling, tracking follows this node instead of auto-selecting
+# the nearest target. Cleared when the node becomes invalid.
+var _manual_target_override: Node3D = null
+
+# Threat assessment state — computed each frame in _process, consumed in _draw.
+var _hostile_count: int = 0
+var _threat_level: String = "LOW"
+var _threat_color: Color = Color(0.2, 1.0, 0.4, 0.9)
+var _incoming_fire_warning: bool = false
+
+# Directional hit indicator — world-space position of the last damage source.
+# Can be set by FlightController (via set_damage_source() or a
+# "last_damage_source_pos" property) to render a directional damage arrow.
+var _last_damage_source_pos: Vector3 = Vector3.ZERO
+var _has_damage_source: bool = false
+
 # Child Node References
 var top_bar_panel: PanelContainer
 var bottom_left_panel: PanelContainer
@@ -170,6 +194,43 @@ func _on_projectile_hit(hit_shield: bool, target_killed: bool) -> void:
 	_hit_marker_is_shield = hit_shield
 	_hit_marker_is_kill = target_killed
 
+## Public setter so FlightController (or any damage source) can report the
+## world-space position of incoming damage for the directional hit indicator.
+func set_damage_source(world_pos: Vector3) -> void:
+	_last_damage_source_pos = world_pos
+	_has_damage_source = true
+
+## Cycles to the next available target in the "targets" group (Tab key).
+## Builds a fresh cache of valid targets, advances the index, and pins the
+## selected target as the manual tracking override.
+func _cycle_target() -> void:
+	_refresh_target_list_cache()
+	if _target_list_cache.is_empty():
+		_manual_target_override = null
+		_current_target_index = -1
+		return
+	_current_target_index = (_current_target_index + 1) % _target_list_cache.size()
+	_manual_target_override = _target_list_cache[_current_target_index]
+
+## Rebuilds _target_list_cache with all valid, non-celestial Node3D targets in
+## the "targets" group. Celestial bodies (planets) are excluded from combat
+## cycling since they are navigation destinations, not hostiles.
+func _refresh_target_list_cache() -> void:
+	_target_list_cache.clear()
+	var tree := get_tree()
+	if tree == null:
+		return
+	for t in tree.get_nodes_in_group("targets"):
+		if not is_instance_valid(t) or not (t is Node3D):
+			continue
+		if t.is_queued_for_deletion():
+			continue
+		# Skip celestial bodies — they are wave-jump destinations, not combat targets.
+		var is_celestial: bool = ("planet_name" in t) or t.is_in_group("celestial_bodies")
+		if is_celestial:
+			continue
+		_target_list_cache.append(t)
+
 func _on_resized() -> void:
 	queue_redraw()
 
@@ -259,7 +320,15 @@ func _locate_weapon_system() -> void:
 func _input(event: InputEvent) -> void:
 	# Mouse input is handled solely by FlightController to avoid double-update jitter.
 	# The HUD reads mouse_flight_cursor from the controller in _process().
-	pass
+	# Target cycling (Tab): cycle through available combat targets. When targets
+	# exist we consume the event so it does not also trigger the organ inspector
+	# in _unhandled_input; with no targets present we let it fall through.
+	if event is InputEventKey and event.pressed and not event.echo:
+		if event.keycode == KEY_TAB:
+			_refresh_target_list_cache()
+			if not _target_list_cache.is_empty():
+				_cycle_target()
+				set_input_as_handled()
 
 func _on_telemetry_updated(data: Dictionary) -> void:
 	if data.has("heart_rate_bpm"): heart_rate_bpm = data["heart_rate_bpm"]
@@ -309,6 +378,12 @@ func _process(delta: float) -> void:
 			bio_shield_pct = clampf(_flight_controller_ref.bio_shield, 0.0, 100.0)
 		if "damage_flash_timer" in _flight_controller_ref:
 			_damage_flash_visual = clampf(_flight_controller_ref.damage_flash_timer, 0.0, 1.0)
+		# Pull directional damage source from FlightController if it exposes one.
+		if "last_damage_source_pos" in _flight_controller_ref:
+			var src: Vector3 = _flight_controller_ref.last_damage_source_pos
+			if src != Vector3.ZERO:
+				_last_damage_source_pos = src
+				_has_damage_source = true
 	else:
 		mouse_flight_cursor = mouse_flight_cursor.lerp(Vector2.ZERO, delta * 3.5)
 		wave_state = 0
@@ -327,6 +402,9 @@ func _process(delta: float) -> void:
 
 	# Planet directional marker — nearest celestial body indicator + distance.
 	_update_nearest_planet_marker()
+
+	# Threat assessment — hostile count, threat level, incoming-fire warning.
+	_update_threat_assessment()
 
 	# Decay hit marker timer
 	if _hit_marker_timer > 0.0:
@@ -348,6 +426,7 @@ func _process(delta: float) -> void:
 ## Projects 3D world targets onto 2D screen coordinates for authentic space combat tracking.
 func _update_target_tracking_3d() -> void:
 	target_locked = false
+	_current_target_node = null
 	var cam: Camera3D = null
 	if is_inside_tree() and get_viewport():
 		cam = get_viewport().get_camera_3d()
@@ -371,6 +450,7 @@ func _update_target_tracking_3d() -> void:
 				target_locked = true
 				target_screen_position = cam.unproject_position(t_pos)
 				target_distance_m = cam.global_position.distance_to(t_pos)
+				_current_target_node = wave_target as Node3D
 				if "planet_name" in wave_target:
 					target_name = wave_target.planet_name
 					var r_km = wave_target.real_radius_km if "real_radius_km" in wave_target else 6371.0
@@ -381,6 +461,29 @@ func _update_target_tracking_3d() -> void:
 					target_name = wave_target.name
 					target_details = "WAVE JUMP DESTINATION"
 				return
+
+	# Refresh the combat-target cache (non-celestial Node3D targets) for Tab cycling.
+	_refresh_target_list_cache()
+
+	# Manual override (Tab cycling): if a specific target was selected, track it
+	# exclusively instead of auto-selecting the nearest. Drop the override if the
+	# node is no longer valid.
+	if _manual_target_override != null:
+		if is_instance_valid(_manual_target_override) and _manual_target_override is Node3D and not _manual_target_override.is_queued_for_deletion():
+			var mt: Node3D = _manual_target_override
+			var mt_pos := mt.global_position
+			if not cam.is_position_behind(mt_pos):
+				var mt_screen := cam.unproject_position(mt_pos)
+				var mt_dist := cam.global_position.distance_to(mt_pos)
+				target_locked = true
+				target_screen_position = mt_screen
+				target_distance_m = mt_dist
+				_current_target_node = mt
+				_apply_target_telemetry(mt, mt_screen, mt_dist, cam)
+			return
+		else:
+			_manual_target_override = null
+			_current_target_index = -1
 
 	var targets := tree.get_nodes_in_group("targets")
 	var best_dist := INF
@@ -400,31 +503,99 @@ func _update_target_tracking_3d() -> void:
 						target_locked = true
 						target_distance_m = d_world
 						target_screen_position = screen_pos
-						
-						# Extract target telemetry data
-						if "planet_name" in t:
-							target_name = t.planet_name
-							var r_km = t.real_radius_km if "real_radius_km" in t else 6371.0
-							var grav = t.surface_gravity_g if "surface_gravity_g" in t else 1.0
-							var temp = t.surface_temp_k if "surface_temp_k" in t else 288.0
-							target_details = "R: %d km | G: %.2fG | T: %dK" % [int(r_km), grav, int(temp)]
-						else:
-							target_name = t.name
-							target_details = "VOID-FAUNA HOSTILE"
-						
-						# Lead prediction pip calculation based on projectile speed
-						var projectile_speed := 200.0
-						var t_vel := Vector3.ZERO
-						if "linear_velocity" in t:
-							t_vel = t.linear_velocity
-						elif "velocity" in t:
-							t_vel = t.velocity
-						var time_to_hit := d_world / maxf(10.0, projectile_speed)
-						var lead_world_pos := t_pos + t_vel * time_to_hit
-						if not cam.is_position_behind(lead_world_pos):
-							lead_indicator_position = cam.unproject_position(lead_world_pos)
-						else:
-							lead_indicator_position = screen_pos
+						_current_target_node = t as Node3D
+						_apply_target_telemetry(t as Node3D, screen_pos, d_world, cam)
+
+## Populates target_name, target_details, and lead_indicator_position for the
+## given tracked target. Shared by the auto-select and manual-override paths.
+func _apply_target_telemetry(t: Node3D, screen_pos: Vector2, d_world: float, cam: Camera3D) -> void:
+	if "planet_name" in t:
+		target_name = t.planet_name
+		var r_km = t.real_radius_km if "real_radius_km" in t else 6371.0
+		var grav = t.surface_gravity_g if "surface_gravity_g" in t else 1.0
+		var temp = t.surface_temp_k if "surface_temp_k" in t else 288.0
+		target_details = "R: %d km | G: %.2fG | T: %dK" % [int(r_km), grav, int(temp)]
+	else:
+		target_name = t.name
+		target_details = "VOID-FAUNA HOSTILE"
+	# Lead prediction pip calculation based on projectile speed
+	var projectile_speed := 200.0
+	var t_vel := Vector3.ZERO
+	if "linear_velocity" in t:
+		t_vel = t.linear_velocity
+	elif "velocity" in t:
+		t_vel = t.velocity
+	var time_to_hit := d_world / maxf(10.0, projectile_speed)
+	var lead_world_pos := t.global_position + t_vel * time_to_hit
+	if not cam.is_position_behind(lead_world_pos):
+		lead_indicator_position = cam.unproject_position(lead_world_pos)
+	else:
+		lead_indicator_position = screen_pos
+
+## Computes threat assessment state each frame: hostile count (void_fauna in
+## CHASE/ATTACK states, or any void_fauna if ai_state is unavailable), threat
+## level (LOW/MEDIUM/HIGH), and an incoming-fire warning when an enemy
+## projectile is within 50m of the player and heading toward them.
+func _update_threat_assessment() -> void:
+	_hostile_count = 0
+	_incoming_fire_warning = false
+	var tree := get_tree()
+	if tree == null:
+		return
+
+	# Count hostile void_fauna. Prefer the ai_state enum (CHASE=1, ATTACK=2);
+	# fall back to counting any void_fauna node if the property is absent.
+	for n in tree.get_nodes_in_group("void_fauna"):
+		if not is_instance_valid(n):
+			continue
+		if n is Node3D and n.is_queued_for_deletion():
+			continue
+		if "ai_state" in n:
+			var st: int = int(n.ai_state)
+			# AIState: PATROL=0, CHASE=1, ATTACK=2, FLEE=3, DEAD=4
+			if st == 1 or st == 2:
+				_hostile_count += 1
+		else:
+			_hostile_count += 1
+
+	# Threat level: LOW (0-1), MEDIUM (2-4), HIGH (5+)
+	if _hostile_count <= 1:
+		_threat_level = "LOW"
+		_threat_color = Color(0.2, 1.0, 0.4, 0.9)
+	elif _hostile_count <= 4:
+		_threat_level = "MEDIUM"
+		_threat_color = Color(1.0, 0.85, 0.2, 0.95)
+	else:
+		_threat_level = "HIGH"
+		_threat_color = Color(1.0, 0.25, 0.2, 0.95)
+
+	# Incoming fire warning: any BioPlasmaProjectile within 50m of the player
+	# that is traveling toward the player (excludes player-fired outgoing bolts).
+	var player_pos := Vector3.ZERO
+	if _flight_controller_ref and is_instance_valid(_flight_controller_ref) and _flight_controller_ref is Node3D:
+		player_pos = (_flight_controller_ref as Node3D).global_position
+	else:
+		return
+	var current_scene := tree.current_scene
+	if current_scene == null:
+		return
+	for child in current_scene.get_children():
+		if not (child is BioPlasmaProjectile):
+			continue
+		if not is_instance_valid(child):
+			continue
+		var proj := child as BioPlasmaProjectile
+		var to_player: Vector3 = player_pos - proj.global_position
+		var dist: float = to_player.length()
+		if dist > 50.0:
+			continue
+		# Direction of travel — if heading toward the player, flag as incoming.
+		var dir: Vector3 = proj.direction
+		if dir.length_squared() > 1e-6 and to_player.length_squared() > 1e-6:
+			if dir.normalized().dot(to_player.normalized()) > 0.0:
+				_incoming_fire_warning = true
+				break
+
 
 ## Tracks the nearest celestial body in the "targets" group for the directional
 ## marker. Populates _planet_marker_* state consumed by _draw(). Prefers the
@@ -966,9 +1137,15 @@ func _draw() -> void:
 		# Line from floating flight reticle to lead pip
 		draw_line(flight_reticle_pos, _smoothed_lead_pos, Color(1.0, 0.8, 0.0, 0.25), 1.0)
 
+		# 10a. Enemy Health & Shield Bars above the lock bracket
+		_draw_target_health_bar(lock_center, box_s, ui_scale)
+
 	# 10b. Planet Directional Marker — edge arrow + distance readout pointing
 	# toward the nearest celestial body so the player can find planets to land on.
 	_draw_planet_marker(center, ui_scale)
+
+	# 10c. Threat Assessment Display — hostile count, threat level, incoming fire
+	_draw_threat_assessment(ui_scale)
 
 	# 11. Comprehensive Wave Engine & Supercruise HUD Display
 	_draw_wave_engine_hud(center, ui_scale)
@@ -978,10 +1155,18 @@ func _draw() -> void:
 
 	# 13. Damage flash overlay — red vignette when taking damage
 	_draw_damage_flash(ui_scale)
+	# 13b. Directional hit indicator — edge arrow toward damage source (if known)
+	_draw_directional_hit_indicator(center, ui_scale)
 
 	# 14. Overheat warning — red pulsing border when weapons overheated
 	if _weapon_overheated:
 		_draw_overheat_warning(ui_scale)
+
+	# 15. Combat stats overlay — top-left corner
+	_draw_combat_stats(ui_scale)
+
+	# 16. Kill streak display — center-top when streak > 0
+	_draw_kill_streak(center, ui_scale)
 
 ## Draws the planet directional marker: an on-screen reticle when the planet is
 ## visible, or an edge arrow pointing toward it when off-screen, plus a
@@ -1175,3 +1360,201 @@ func _draw_overheat_warning(ui_scale: float) -> void:
 
 func center_of_screen() -> Vector2:
 	return size * 0.5
+
+## Draws enemy health (and optional shield) bars above the target lock bracket.
+## Green > 50%, yellow > 25%, red below. Shield bar (cyan) renders above health
+## when the target exposes shield + max_shield with max_shield > 0.
+func _draw_target_health_bar(lock_center: Vector2, box_s: float, ui_scale: float) -> void:
+	if _current_target_node == null or not is_instance_valid(_current_target_node):
+		return
+	var t: Object = _current_target_node
+	if not ("health" in t) or not ("max_health" in t):
+		return
+	var max_hp: float = float(t.max_health)
+	if max_hp <= 0.0:
+		return
+	var hp: float = clampf(float(t.health), 0.0, max_hp)
+	var hp_pct: float = hp / max_hp
+
+	var bar_w: float = 60.0 * ui_scale
+	var bar_h: float = 5.0 * ui_scale
+	var bar_x: float = lock_center.x - bar_w * 0.5
+	# Stack bars above the lock bracket.
+	var shield_h: float = 0.0
+	if "shield" in t and "max_shield" in t:
+		var max_sh: float = float(t.max_shield)
+		if max_sh > 0.0:
+			shield_h = bar_h + 2.0 * ui_scale
+	var health_y: float = lock_center.y - box_s - 8.0 * ui_scale - bar_h - shield_h
+
+	# Shield bar (drawn above health)
+	if shield_h > 0.0:
+		var sh: float = clampf(float(t.shield), 0.0, float(t.max_shield))
+		var sh_pct: float = sh / float(t.max_shield)
+		var shield_y: float = health_y - bar_h - 2.0 * ui_scale
+		draw_rect(Rect2(bar_x, shield_y, bar_w, bar_h), Color(0.0, 0.1, 0.15, 0.7), true)
+		var shield_col := Color(0.2, 0.7, 1.0, 0.95)
+		draw_rect(Rect2(bar_x, shield_y, bar_w * clampf(sh_pct, 0.0, 1.0), bar_h), shield_col, true)
+		draw_rect(Rect2(bar_x, shield_y, bar_w, bar_h), Color(0.2, 0.7, 1.0, 0.5), false, maxf(0.5, 1.0 * ui_scale))
+
+	# Health bar
+	var hp_col: Color
+	if hp_pct > 0.5:
+		hp_col = Color(0.2, 1.0, 0.3, 0.95)
+	elif hp_pct > 0.25:
+		hp_col = Color(1.0, 0.85, 0.2, 0.95)
+	else:
+		hp_col = Color(1.0, 0.25, 0.2, 0.95)
+	draw_rect(Rect2(bar_x, health_y, bar_w, bar_h), Color(0.1, 0.05, 0.05, 0.7), true)
+	draw_rect(Rect2(bar_x, health_y, bar_w * clampf(hp_pct, 0.0, 1.0), bar_h), hp_col, true)
+	draw_rect(Rect2(bar_x, health_y, bar_w, bar_h), Color(0.6, 0.6, 0.6, 0.4), false, maxf(0.5, 1.0 * ui_scale))
+
+## Draws the threat assessment panel in the top-left area: hostile count,
+## color-coded threat level, and a flashing INCOMING warning when an enemy
+## projectile is near the player.
+func _draw_threat_assessment(ui_scale: float) -> void:
+	var font := get_theme_default_font()
+	if not font:
+		return
+	var x: float = 20.0 * ui_scale
+	# Place below the existing combat-stats panel (which occupies ~y 56-144).
+	var y: float = 150.0 * ui_scale
+	var line_h: float = 16.0 * ui_scale
+	var font_size: int = int(maxf(9, 10 * ui_scale))
+
+	var panel_w: float = 190.0 * ui_scale
+	var panel_h: float = line_h * 2 + 10 * ui_scale
+	if _incoming_fire_warning:
+		panel_h += line_h
+	draw_rect(Rect2(x - 6, y - 4, panel_w, panel_h), Color(0.0, 0.1, 0.05, 0.55), true)
+	draw_rect(Rect2(x - 6, y - 4, panel_w, panel_h), Color(0.0, 0.8, 0.6, 0.3), false, maxf(0.5, 1.0 * ui_scale))
+
+	draw_string(font, Vector2(x, y), "HOSTILES: %d" % _hostile_count, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Color(0.9, 0.9, 0.9, 0.9))
+	draw_string(font, Vector2(x, y + line_h), "THREAT: %s" % _threat_level, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, _threat_color)
+
+	if _incoming_fire_warning:
+		# Flashing INCOMING warning — pulse alpha with the reticle timer.
+		var pulse: float = 0.5 + sin(_reticle_pulse_time * 12.0) * 0.5
+		var inc_col := Color(1.0, 0.15, 0.1, clampf(pulse, 0.2, 1.0))
+		draw_string(font, Vector2(x, y + line_h * 2), "INCOMING", HORIZONTAL_ALIGNMENT_LEFT, -1, int(maxf(10, 11 * ui_scale)), inc_col)
+
+## Draws a directional damage indicator: a red arrow at the screen edge pointing
+## toward the source of incoming damage. Only renders while the damage flash is
+## active and a damage source position has been reported (via set_damage_source
+## or FlightController.last_damage_source_pos).
+func _draw_directional_hit_indicator(center: Vector2, ui_scale: float) -> void:
+	if _damage_flash_visual <= 0.01:
+		return
+	if not _has_damage_source:
+		return
+	var cam: Camera3D = null
+	if is_inside_tree() and get_viewport():
+		cam = get_viewport().get_camera_3d()
+	if cam == null:
+		return
+
+	var dir: Vector2 = Vector2.ZERO
+	if cam.is_position_behind(_last_damage_source_pos):
+		# Source behind the camera — point toward the back-projection of its
+		# direction relative to the camera basis.
+		var to_src: Vector3 = (_last_damage_source_pos - cam.global_position).normalized()
+		var cam_right: Vector3 = cam.global_transform.basis.x
+		var cam_up: Vector3 = cam.global_transform.basis.y
+		dir = Vector2(to_src.dot(cam_right), to_src.dot(-cam_up)).normalized()
+		if dir == Vector2.ZERO:
+			dir = Vector2(0.0, 1.0)
+	else:
+		var sp: Vector2 = cam.unproject_position(_last_damage_source_pos)
+		dir = (sp - center).normalized()
+		if dir == Vector2.ZERO:
+			dir = Vector2(0.0, 1.0)
+
+	var margin: float = 36.0 * ui_scale
+	var half_size := size * 0.5
+	var edge_pos := _edge_intersection(center, dir, half_size, margin)
+
+	var alpha: float = clampf(_damage_flash_visual, 0.0, 1.0)
+	var col := Color(1.0, 0.1, 0.05, 0.85 * alpha)
+	var arrow_len: float = 18.0 * ui_scale
+	var arrow_w: float = 11.0 * ui_scale
+	var tip := edge_pos + dir * arrow_len
+	var perp := Vector2(-dir.y, dir.x)
+	var base_l := edge_pos + perp * arrow_w
+	var base_r := edge_pos - perp * arrow_w
+	draw_colored_polygon(PackedVector2Array([tip, base_l, base_r]), col)
+	# Outline for visibility against bright backgrounds.
+	draw_line(base_l, base_r, Color(1.0, 0.4, 0.3, alpha), maxf(1.0, 1.2 * ui_scale))
+	draw_line(base_l, tip, Color(1.0, 0.4, 0.3, alpha), maxf(1.0, 1.2 * ui_scale))
+	draw_line(base_r, tip, Color(1.0, 0.4, 0.3, alpha), maxf(1.0, 1.2 * ui_scale))
+
+## Draws combat statistics in the top-left corner
+func _draw_combat_stats(ui_scale: float) -> void:
+	var font := get_theme_default_font()
+	if not font:
+		return
+	var x: float = 20.0 * ui_scale
+	var y: float = 60.0 * ui_scale
+	var line_h: float = 16.0 * ui_scale
+	var font_size: int = int(10 * ui_scale)
+
+	# Get stats from CombatStats autoload
+	var stats: Dictionary = {}
+	var ml := Engine.get_main_loop()
+	if ml is SceneTree and ml.root and ml.root.has_node("CombatStats"):
+		var cs: Object = ml.root.get_node("CombatStats")
+		stats = {
+			"kills": cs.kills,
+			"deaths": cs.deaths,
+			"accuracy": cs.get_accuracy(),
+			"combat_rating": cs.get_combat_rating(),
+			"kill_streak": cs.kill_streak,
+			"streak_multiplier": cs.streak_multiplier,
+		}
+
+	if stats.is_empty():
+		return
+
+	# Background panel
+	var panel_w: float = 180.0 * ui_scale
+	var panel_h: float = line_h * 5 + 8 * ui_scale
+	draw_rect(Rect2(x - 6, y - 4, panel_w, panel_h), Color(0.0, 0.1, 0.05, 0.5), true)
+
+	# Rating color
+	var rating: String = stats.get("combat_rating", "F")
+	var rating_col: Color = Color(0.5, 0.5, 0.5, 0.9)
+	match rating:
+		"SSS": rating_col = Color(1.0, 0.2, 0.8, 1.0)
+		"S": rating_col = Color(1.0, 0.8, 0.0, 1.0)
+		"A": rating_col = Color(0.3, 1.0, 0.3, 1.0)
+		"B": rating_col = Color(0.3, 0.8, 1.0, 0.9)
+		"C": rating_col = Color(0.8, 0.8, 0.3, 0.9)
+		"D": rating_col = Color(0.8, 0.5, 0.3, 0.9)
+		"F": rating_col = Color(0.5, 0.5, 0.5, 0.7)
+
+	# Draw stats lines
+	draw_string(font, Vector2(x, y), "RATING: %s" % rating, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, rating_col)
+	draw_string(font, Vector2(x, y + line_h), "KILLS: %d  DEATHS: %d" % [stats.get("kills", 0), stats.get("deaths", 0)], HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Color(0.7, 0.9, 0.7, 0.8))
+	draw_string(font, Vector2(x, y + line_h * 2), "ACC: %.1f%%" % stats.get("accuracy", 0.0), HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Color(0.7, 0.9, 0.7, 0.8))
+	if stats.get("kill_streak", 0) > 0:
+		draw_string(font, Vector2(x, y + line_h * 3), "STREAK: %d (%.1fx)" % [stats.get("kill_streak", 0), stats.get("streak_multiplier", 1.0)], HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Color(1.0, 0.8, 0.2, 0.9))
+
+## Draws kill streak notification in center-top area
+func _draw_kill_streak(center: Vector2, ui_scale: float) -> void:
+	var ml := Engine.get_main_loop()
+	if not (ml is SceneTree and ml.root and ml.root.has_node("CombatStats")):
+		return
+	var cs: Object = ml.root.get_node("CombatStats")
+	if cs.kill_streak < 2:
+		return
+	var font := get_theme_default_font()
+	if not font:
+		return
+	var pulse: float = 0.7 + sin(_reticle_pulse_time * 6.0) * 0.3
+	var col := Color(1.0, 0.8, 0.2, pulse)
+	if cs.kill_streak >= 10:
+		col = Color(1.0, 0.3, 0.1, pulse)
+	elif cs.kill_streak >= 5:
+		col = Color(1.0, 0.6, 0.0, pulse)
+	var txt: String = "%d KILL STREAK (%.1fx)" % [cs.kill_streak, cs.streak_multiplier]
+	var font_size: int = int(14 * ui_scale)
+	draw_string(font, Vector2(center.x - 80 * ui_scale, 80 * ui_scale), txt, HORIZONTAL_ALIGNMENT_CENTER, -1, font_size, col)

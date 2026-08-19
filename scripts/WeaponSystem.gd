@@ -29,7 +29,10 @@ enum LockState { NONE, ACQUIRING, LOCKED }
 enum WeaponType {
 	DISRUPTOR,       ## Rapid bio-plasma lasers (Straight fire)
 	PLASMA_MISSILES, ## Homing bio-plasma lock-on missiles
-	SPORE_CLOUD      ## Defensive bio-spore cloud dispenser
+	SPORE_CLOUD,     ## Defensive bio-spore cloud dispenser
+	EMP_BURST,       ## Area-of-effect energy pulse that strips enemy shields
+	BEAM_EMITTER,    ## Continuous hitscan beam weapon
+	MINE_DEPLOYER    ## Proximity mine deployed behind the ship
 }
 
 @export_group("Active Weapon Selection")
@@ -57,6 +60,26 @@ enum WeaponType {
 @export var spore_cloud_dps: float = 15.0
 @export var secondary_heat_cost: float = 30.0
 
+@export_group("EMP Burst - Shield-Stripping Area Pulse")
+@export var emp_fire_cooldown: float = 3.0
+@export var emp_damage: float = 10.0
+@export var emp_shield_bonus_damage: float = 40.0
+@export var emp_heat_cost: float = 40.0
+@export var emp_max_radius: float = 30.0
+@export var emp_expand_speed: float = 60.0
+
+@export_group("Beam Emitter - Continuous Hitscan Lance")
+@export var beam_tick_interval: float = 0.02
+@export var beam_damage_per_tick: float = 8.0
+@export var beam_heat_cost: float = 3.0
+@export var beam_range: float = 500.0
+
+@export_group("Mine Deployer - Proximity Explosive Ordnance")
+@export var mine_fire_cooldown: float = 1.5
+@export var mine_damage: float = 60.0
+@export var mine_heat_cost: float = 25.0
+@export var mine_trigger_radius: float = 15.0
+
 @export_group("Heat & Spiracle Venting")
 @export var max_heat: float = 100.0
 @export var heat_dissipation_rate: float = 25.0 # heat units per second
@@ -78,7 +101,13 @@ var current_heat: float = 0.0
 var is_overheated: bool = false
 var primary_cooldown_timer: float = 0.0
 var secondary_cooldown_timer: float = 0.0
+var emp_cooldown_timer: float = 0.0
+var mine_cooldown_timer: float = 0.0
+var beam_tick_timer: float = 0.0
 var current_muzzle_toggle: bool = false
+
+# Beam visual node (lazily created, reused across ticks)
+var _beam_visual: MeshInstance3D
 
 var lock_state: LockState = LockState.NONE
 var current_target: Node3D = null
@@ -117,6 +146,7 @@ func _process(delta: float) -> void:
 	_update_cooldowns_and_heat(delta)
 	_update_combat_state(delta)
 	_update_targeting(delta)
+	_update_beam(delta)
 	_handle_input()
 
 
@@ -188,12 +218,12 @@ func select_weapon(type: WeaponType) -> void:
 	_sync_audio_lock_state(_get_current_lock_stage())
 
 func cycle_weapon_next() -> void:
-	var next_idx := (int(selected_weapon) + 1) % 3
+	var next_idx := (int(selected_weapon) + 1) % WeaponType.size()
 	select_weapon(next_idx as WeaponType)
 
 
 func _handle_input() -> void:
-	# Weapon Switching Hotkeys
+	# Weapon Switching Hotkeys (1-6 select weapons directly)
 	if _key_switch_debounce <= 0.0:
 		if Input.is_key_pressed(KEY_1):
 			select_weapon(WeaponType.DISRUPTOR)
@@ -204,11 +234,20 @@ func _handle_input() -> void:
 		elif Input.is_key_pressed(KEY_3):
 			select_weapon(WeaponType.SPORE_CLOUD)
 			_key_switch_debounce = 0.25
-		elif Input.is_key_pressed(KEY_X) or Input.is_key_pressed(KEY_G):
+		elif Input.is_key_pressed(KEY_4) or Input.is_key_pressed(KEY_X):
+			select_weapon(WeaponType.EMP_BURST)
+			_key_switch_debounce = 0.25
+		elif Input.is_key_pressed(KEY_5) or Input.is_key_pressed(KEY_B):
+			select_weapon(WeaponType.BEAM_EMITTER)
+			_key_switch_debounce = 0.25
+		elif Input.is_key_pressed(KEY_6) or Input.is_key_pressed(KEY_M):
+			select_weapon(WeaponType.MINE_DEPLOYER)
+			_key_switch_debounce = 0.25
+		elif Input.is_key_pressed(KEY_G):
 			cycle_weapon_next()
 			_key_switch_debounce = 0.25
 
-	# Primary Fire (Fires selected weapon)
+	# Primary Fire (Fires selected weapon). Beam is handled in _update_beam.
 	if Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) or Input.is_key_pressed(KEY_SPACE):
 		match selected_weapon:
 			WeaponType.DISRUPTOR:
@@ -217,7 +256,13 @@ func _handle_input() -> void:
 				fire_plasma_missiles()
 			WeaponType.SPORE_CLOUD:
 				fire_secondary()
-	
+			WeaponType.EMP_BURST:
+				fire_emp_burst()
+			WeaponType.BEAM_EMITTER:
+				pass # Continuous beam handled by _update_beam tick logic
+			WeaponType.MINE_DEPLOYER:
+				fire_mine()
+
 	# Secondary Fire (Always available shortcut for Spore Cloud)
 	if Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT) or Input.is_key_pressed(KEY_C):
 		fire_secondary()
@@ -261,6 +306,7 @@ func fire_primary() -> bool:
 		ml.root.get_node("BioAudioSynth").play_laser_fire(pan)
 
 	weapon_fired.emit("disruptor", primary_heat_cost)
+	CombatStats.register_shot_fired()
 	return true
 
 
@@ -308,6 +354,7 @@ func fire_plasma_missiles() -> bool:
 		synth.play_chitin_creak()
 
 	weapon_fired.emit("plasma_missiles", missile_heat_cost)
+	CombatStats.register_shot_fired()
 	return true
 
 
@@ -335,6 +382,178 @@ func fire_secondary() -> bool:
 	return true
 
 
+## EMP Burst: Area-of-effect energy pulse that strips enemy shields.
+## Spawns an expanding Area3D that sets shield=0 and deals bonus damage to shielded targets.
+func fire_emp_burst() -> bool:
+	if is_overheated or emp_cooldown_timer > 0.0:
+		return false
+
+	emp_cooldown_timer = emp_fire_cooldown
+	_add_heat(emp_heat_cost)
+
+	var pulse := EmpPulseArea.new()
+	pulse.base_damage = emp_damage
+	pulse.shield_bonus = emp_shield_bonus_damage
+	pulse.max_radius = emp_max_radius
+	pulse.expand_speed = emp_expand_speed
+	if is_inside_tree() and get_tree() and get_tree().root:
+		get_tree().root.add_child(pulse)
+	pulse.global_position = global_position
+
+	# Visual: blue-white expanding ring via CombatVFX
+	CombatVFX.spawn_explosion(global_position, Color(0.45, 0.75, 1.0, 1.0), 1.5)
+
+	# Audio Telemetry: EMP discharge reuses shield impact transient
+	var ml := Engine.get_main_loop()
+	if ml is SceneTree and ml.root and ml.root.has_node("BioAudioSynth"):
+		ml.root.get_node("BioAudioSynth").play_shield_impact()
+
+	weapon_fired.emit("emp_burst", emp_heat_cost)
+	return true
+
+
+## Beam Emitter: Continuous hitscan beam weapon. Called on a fixed tick interval
+## by _update_beam while the player holds the fire input with BEAM_EMITTER selected.
+func fire_beam_tick() -> bool:
+	if is_overheated:
+		return false
+
+	_add_heat(beam_heat_cost)
+
+	var muzzle := muzzle_left if muzzle_left else (muzzle_right if muzzle_right else self)
+	var origin := muzzle.global_position
+	var dir := -muzzle.global_transform.basis.z.normalized()
+	var end_pos := origin + dir * beam_range
+
+	# Hitscan raycast along the beam
+	if is_inside_tree() and get_world_3d():
+		var space_state := get_world_3d().direct_space_state
+		if space_state:
+			var query := PhysicsRayQueryParameters3D.create(origin, end_pos)
+			query.collide_with_areas = true
+			query.collide_with_bodies = true
+			query.exclude = [get_rid()]
+			var hit_dict := space_state.intersect_ray(query)
+			if not hit_dict.is_empty():
+				end_pos = hit_dict.get("position", end_pos)
+				var collider = hit_dict.get("collider")
+				if collider is Node:
+					_apply_beam_damage(collider as Node, end_pos)
+
+	# Draw thin green beam from muzzle to hit point
+	_draw_beam(origin, end_pos)
+
+	weapon_fired.emit("beam", beam_heat_cost)
+	return true
+
+
+## Mine Deployer: Deploys a stationary proximity mine behind the ship.
+## The mine detonates when an enemy comes within mine_trigger_radius meters.
+func fire_mine() -> bool:
+	if is_overheated or mine_cooldown_timer > 0.0:
+		return false
+
+	mine_cooldown_timer = mine_fire_cooldown
+	_add_heat(mine_heat_cost)
+
+	var mine := ProximityMine.new()
+	mine.trigger_radius = mine_trigger_radius
+	mine.damage = mine_damage
+	if is_inside_tree() and get_tree() and get_tree().root:
+		get_tree().root.add_child(mine)
+	# Deploy behind the ship
+	mine.global_position = global_position - global_transform.basis.z * 4.0
+
+	weapon_fired.emit("mine", mine_heat_cost)
+	return true
+
+
+# ==============================================================================
+# Beam Rendering & Tick Control
+# ==============================================================================
+
+## Per-frame beam control: ticks damage/heat on beam_tick_interval while fire is held.
+func _update_beam(delta: float) -> void:
+	var want_fire: bool = (selected_weapon == WeaponType.BEAM_EMITTER) and \
+		(Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) or Input.is_key_pressed(KEY_SPACE)) and \
+		not is_overheated
+
+	if not want_fire:
+		beam_tick_timer = 0.0
+		if _beam_visual and is_instance_valid(_beam_visual):
+			_beam_visual.visible = false
+		return
+
+	beam_tick_timer -= delta
+	if beam_tick_timer <= 0.0:
+		beam_tick_timer = beam_tick_interval
+		fire_beam_tick()
+	else:
+		# Keep the beam visual refreshed each frame between damage ticks
+		_refresh_beam_visual()
+
+## Applies beam tick damage to the raycast hit target.
+func _apply_beam_damage(target: Node, hit_point: Vector3) -> void:
+	if not is_instance_valid(target):
+		return
+	if target.has_method("take_damage"):
+		target.call("take_damage", beam_damage_per_tick)
+	elif is_instance_valid(target.get_parent()) and target.get_parent().has_method("take_damage"):
+		target.get_parent().call("take_damage", beam_damage_per_tick)
+	CombatVFX.spawn_impact(hit_point, Color(0.2, 1.0, 0.3, 1.0), false, beam_damage_per_tick)
+
+## Lazily creates the beam visual node and draws a line from start to end.
+func _draw_beam(start: Vector3, end: Vector3) -> void:
+	_ensure_beam_visual()
+	if not _beam_visual or not is_instance_valid(_beam_visual):
+		return
+	_beam_visual.visible = true
+	var im := _beam_visual.mesh as ImmediateMesh
+	if im:
+		im.clear_surfaces()
+		im.surface_begin(Mesh.PRIMITIVE_LINES, _beam_visual.material_override)
+		im.surface_add_vertex(start)
+		im.surface_add_vertex(end)
+		im.surface_end()
+
+## Redraws the beam using the current muzzle position and a fresh raycast,
+## so the visual stays smooth between damage ticks.
+func _refresh_beam_visual() -> void:
+	if not _beam_visual or not is_instance_valid(_beam_visual):
+		return
+	var muzzle := muzzle_left if muzzle_left else (muzzle_right if muzzle_right else self)
+	var origin := muzzle.global_position
+	var dir := -muzzle.global_transform.basis.z.normalized()
+	var end_pos := origin + dir * beam_range
+	if is_inside_tree() and get_world_3d():
+		var space_state := get_world_3d().direct_space_state
+		if space_state:
+			var query := PhysicsRayQueryParameters3D.create(origin, end_pos)
+			query.collide_with_areas = true
+			query.collide_with_bodies = true
+			query.exclude = [get_rid()]
+			var hit_dict := space_state.intersect_ray(query)
+			if not hit_dict.is_empty():
+				end_pos = hit_dict.get("position", end_pos)
+	_draw_beam(origin, end_pos)
+
+func _ensure_beam_visual() -> void:
+	if _beam_visual and is_instance_valid(_beam_visual):
+		return
+	_beam_visual = MeshInstance3D.new()
+	_beam_visual.mesh = ImmediateMesh.new()
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(0.2, 1.0, 0.3, 0.85)
+	mat.emission = Color(0.2, 1.0, 0.3)
+	mat.emission_energy_multiplier = 2.0
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.no_depth_test = true
+	_beam_visual.material_override = mat
+	if is_inside_tree() and get_tree() and get_tree().root:
+		get_tree().root.add_child(_beam_visual)
+
+
 # ==============================================================================
 # Heat & Targeting Mechanics
 # ==============================================================================
@@ -355,6 +574,10 @@ func _update_cooldowns_and_heat(delta: float) -> void:
 		primary_cooldown_timer -= delta
 	if secondary_cooldown_timer > 0.0:
 		secondary_cooldown_timer -= delta
+	if emp_cooldown_timer > 0.0:
+		emp_cooldown_timer -= delta
+	if mine_cooldown_timer > 0.0:
+		mine_cooldown_timer -= delta
 
 	if current_heat > 0.0:
 		current_heat = max(0.0, current_heat - heat_dissipation_rate * delta)
@@ -475,3 +698,204 @@ func _create_bio_plasma_projectile() -> Area3D:
 
 func _create_spore_cloud_area() -> Area3D:
 	return BioSporeCloudClass.new()
+
+
+# ==============================================================================
+# Inner Classes: EMP Pulse & Proximity Mine (self-contained Area3D payloads)
+# ==============================================================================
+
+## Expanding Area3D energy pulse that strips enemy shields and deals bonus
+## damage to shielded targets. Grows from a small radius to max_radius, then
+## frees itself. Each target is only affected once per pulse.
+class EmpPulseArea extends Area3D:
+	var max_radius: float = 30.0
+	var expand_speed: float = 60.0
+	var base_damage: float = 10.0
+	var shield_bonus: float = 40.0
+
+	var _radius: float = 1.0
+	var _shape: SphereShape3D
+	var _mesh: MeshInstance3D
+	var _hit_targets: Dictionary = {} # Node -> bool (already affected)
+
+	func _ready() -> void:
+		_shape = SphereShape3D.new()
+		_shape.radius = _radius
+		var cs := CollisionShape3D.new()
+		cs.shape = _shape
+		add_child(cs)
+
+		_mesh = MeshInstance3D.new()
+		var sphere := SphereMesh.new()
+		sphere.radius = 1.0
+		sphere.height = 2.0
+		var mat := StandardMaterial3D.new()
+		var c := Color(0.45, 0.75, 1.0, 0.55)
+		mat.albedo_color = c
+		mat.emission = c
+		mat.emission_energy_multiplier = 2.5
+		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		mat.no_depth_test = true
+		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		sphere.material = mat
+		_mesh.mesh = sphere
+		add_child(_mesh)
+
+		# Disable monitoring self
+		monitorable = true
+		monitoring = true
+
+	func _physics_process(delta: float) -> void:
+		if is_queued_for_deletion():
+			return
+
+		_radius += expand_speed * delta
+		if _radius >= max_radius:
+			queue_free()
+			return
+
+		_shape.radius = _radius
+		if _mesh and is_instance_valid(_mesh):
+			_mesh.scale = Vector3.ONE * _radius
+
+		# Affect every overlapping target once
+		for body in get_overlapping_bodies():
+			_try_apply(body)
+		for area in get_overlapping_areas():
+			_try_apply(area)
+
+	func _try_apply(target: Node) -> void:
+		if not is_instance_valid(target) or target == self:
+			return
+		if _hit_targets.has(target):
+			return
+		_hit_targets[target] = true
+
+		# Resolve the damageable node (target or its parent)
+		var node: Node = target
+		var had_shield: bool = false
+		if "bio_shield" in node and float(node.get("bio_shield")) > 0.0:
+			had_shield = true
+		elif is_instance_valid(node.get_parent()) and "bio_shield" in node.get_parent() \
+				and float(node.get_parent().get("bio_shield")) > 0.0:
+			had_shield = true
+			node = node.get_parent()
+
+		var dmg: float = base_damage + (shield_bonus if had_shield else 0.0)
+		if node.has_method("take_damage"):
+			node.call("take_damage", dmg)
+		elif is_instance_valid(node.get_parent()) and node.get_parent().has_method("take_damage"):
+			node.get_parent().call("take_damage", dmg)
+
+		# Strip shields (set shield=0)
+		if "bio_shield" in node:
+			node.set("bio_shield", 0.0)
+		elif is_instance_valid(node.get_parent()) and "bio_shield" in node.get_parent():
+			node.get_parent().set("bio_shield", 0.0)
+
+		# Shield ripple feedback if a shield was present
+		if had_shield:
+			CombatVFX.spawn_shield_ripple(
+				(target as Node3D).global_position if target is Node3D else global_position,
+				Vector3.UP, Color(0.45, 0.75, 1.0, 1.0))
+
+
+## Stationary proximity mine. Arms after a short delay, then detonates when an
+## enemy enters its trigger radius, dealing explosion damage and spawning VFX.
+class ProximityMine extends Area3D:
+	var trigger_radius: float = 15.0
+	var damage: float = 60.0
+	var arm_delay: float = 0.5
+
+	var _armed: bool = false
+	var _arm_timer: float = 0.0
+	var _shape: SphereShape3D
+	var _mesh: MeshInstance3D
+
+	func _ready() -> void:
+		_shape = SphereShape3D.new()
+		_shape.radius = trigger_radius
+		var cs := CollisionShape3D.new()
+		cs.shape = _shape
+		add_child(cs)
+
+		_mesh = MeshInstance3D.new()
+		var sphere := SphereMesh.new()
+		sphere.radius = 0.5
+		sphere.height = 1.0
+		var mat := StandardMaterial3D.new()
+		var c := Color(1.0, 0.1, 0.1, 1.0)
+		mat.albedo_color = c
+		mat.emission = c
+		mat.emission_energy_multiplier = 2.0
+		mat.no_depth_test = true
+		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		sphere.material = mat
+		_mesh.mesh = sphere
+		add_child(_mesh)
+
+		monitorable = true
+		monitoring = true
+
+	func _physics_process(delta: float) -> void:
+		if is_queued_for_deletion():
+			return
+
+		if not _armed:
+			_arm_timer += delta
+			if _arm_timer >= arm_delay:
+				_armed = true
+			return
+
+		# Pulse the red sphere visual once armed
+		if _mesh and is_instance_valid(_mesh):
+			_mesh.scale = Vector3.ONE * (1.0 + sin(_arm_timer * 8.0) * 0.2)
+		_arm_timer += delta
+
+		# Detonate if any enemy is within the trigger radius
+		for body in get_overlapping_bodies():
+			if _is_enemy(body):
+				_detonate()
+				return
+		for area in get_overlapping_areas():
+			if _is_enemy(area):
+				_detonate()
+				return
+
+	func _is_enemy(node: Node) -> bool:
+		if not is_instance_valid(node) or node == self:
+			return false
+		if node.is_in_group("targets") or node.is_in_group("void_fauna"):
+			return true
+		if is_instance_valid(node.get_parent()):
+			var p: Node = node.get_parent()
+			if p.is_in_group("targets") or p.is_in_group("void_fauna"):
+				return true
+		return false
+
+	func _detonate() -> void:
+		if is_queued_for_deletion():
+			return
+		# Explosion VFX via CombatVFX
+		CombatVFX.spawn_explosion(global_position, Color(1.0, 0.3, 0.1, 1.0), 2.0)
+
+		# Apply explosion damage to everything in the trigger radius
+		for body in get_overlapping_bodies():
+			_apply_damage(body)
+		for area in get_overlapping_areas():
+			_apply_damage(area)
+
+		# Audio Telemetry: detonation reuses shield impact transient
+		var ml := Engine.get_main_loop()
+		if ml is SceneTree and ml.root and ml.root.has_node("BioAudioSynth"):
+			ml.root.get_node("BioAudioSynth").play_shield_impact()
+
+		queue_free()
+
+	func _apply_damage(node: Node) -> void:
+		if not is_instance_valid(node) or node == self:
+			return
+		if node.has_method("take_damage"):
+			node.call("take_damage", damage)
+		elif is_instance_valid(node.get_parent()) and node.get_parent().has_method("take_damage"):
+			node.get_parent().call("take_damage", damage)

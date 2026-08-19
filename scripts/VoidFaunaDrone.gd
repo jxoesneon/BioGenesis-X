@@ -408,6 +408,8 @@ func _on_destroyed() -> void:
 	ai_state = AIState.DEAD
 	# Spawn explosion VFX
 	CombatVFX.spawn_explosion(global_position, _projectile_color, 1.2)
+	# Register kill in combat stats
+	CombatStats.register_kill(drone_class_to_string())
 	var ml := Engine.get_main_loop()
 	if ml is SceneTree and ml.root:
 		if ml.root.has_node("BioAudioSynth"):
@@ -417,6 +419,14 @@ func _on_destroyed() -> void:
 		if _weapon_system_ref and is_instance_valid(_weapon_system_ref):
 			_weapon_system_ref.set_targeted_by_enemy(self, false)
 	queue_free()
+
+func drone_class_to_string() -> String:
+	match drone_class:
+		DroneClass.SCOUT: return "SCOUT"
+		DroneClass.HUNTER: return "HUNTER"
+		DroneClass.SENTINEL: return "SENTINEL"
+		DroneClass.SWARMER: return "SWARMER"
+		_: return "UNKNOWN"
 
 ## Set aggression from noise field metadata (called by ChunkStreamManager)
 func set_aggression(value: float) -> void:
