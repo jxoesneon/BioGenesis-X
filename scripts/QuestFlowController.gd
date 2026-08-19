@@ -46,24 +46,68 @@ var _flow_in_progress: bool = false
 var _flow_completed: bool = false
 var _pending_save: bool = false
 
+## Optional data-driven quest definition. When set, the base class reads
+## quest_id, dialogue_path, objective_ids, and save_key from this resource
+## instead of the virtual method overrides.
+@export var quest_definition: QuestDefinition = null
+
+## Static registry of quest definitions keyed by quest_id.
+static var _definition_registry: Dictionary = {}
+
+
+## Registers a QuestDefinition in the static registry.
+static func register_definition(def: QuestDefinition) -> void:
+	if def and def.quest_id != "":
+		_definition_registry[def.quest_id] = def
+
+
+## Looks up a registered QuestDefinition by quest ID.
+static func get_definition(quest_id: String) -> QuestDefinition:
+	return _definition_registry.get(quest_id, null) as QuestDefinition
+
+
+## Loads all QuestDefinition resources from a directory.
+static func load_definitions_from_dir(dir_path: String = "res://data/quests") -> void:
+	var dir := DirAccess.open(dir_path)
+	if dir == null:
+		return
+	dir.list_dir_begin()
+	var file_name := dir.get_next()
+	while file_name != "":
+		if not dir.current_is_dir() and file_name.ends_with(".tres"):
+			var full_path := dir_path + "/" + file_name
+			var res := load(full_path)
+			if res is QuestDefinition:
+				register_definition(res)
+		file_name = dir.get_next()
+	dir.list_dir_end()
+
 
 # ============================================================================
 # VIRTUAL METHODS (override in subclasses)
 # ============================================================================
 
 func _get_quest_id() -> String:
+	if quest_definition:
+		return quest_definition.quest_id
 	return ""
 
 
 func _get_dialogue_path() -> String:
+	if quest_definition:
+		return quest_definition.dialogue_path
 	return ""
 
 
 func _get_objective_ids() -> Dictionary:
+	if quest_definition:
+		return quest_definition.objective_ids
 	return {}
 
 
 func _save_key() -> String:
+	if quest_definition:
+		return quest_definition.save_key
 	return ""
 
 

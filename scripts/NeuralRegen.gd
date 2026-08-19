@@ -84,7 +84,6 @@ const _COMPUTE_SHADER_PATH: String = "res://shaders/regen_compute.glsl"
 const _REGEN_SHADER_PATH: String = "res://shaders/bio_regen.gdshader"
 const _GRID_SIZE: int = 64  # 64x64 damage map grid
 
-var _rendering_device: RenderingDevice = null
 var _compute_pipeline: RID = RID()
 var _compute_shader_rid: RID = RID()
 var _uniform_set: RID = RID()
@@ -119,26 +118,25 @@ func _exit_tree() -> void:
 
 ## Frees all GPU RIDs to prevent resource leaks on exit or scene transition.
 func _free_gpu_resources() -> void:
-	if _rendering_device == null:
-		return
-	if _uniform_set.is_valid():
-		_rendering_device.free_rid(_uniform_set)
-		_uniform_set = RID()
-	if _buffer_params.is_valid():
-		_rendering_device.free_rid(_buffer_params)
-		_buffer_params = RID()
-	if _buffer_next.is_valid():
-		_rendering_device.free_rid(_buffer_next)
-		_buffer_next = RID()
-	if _buffer_damage.is_valid():
-		_rendering_device.free_rid(_buffer_damage)
-		_buffer_damage = RID()
-	if _compute_pipeline.is_valid():
-		_rendering_device.free_rid(_compute_pipeline)
-		_compute_pipeline = RID()
-	if _compute_shader_rid.is_valid():
-		_rendering_device.free_rid(_compute_shader_rid)
-		_compute_shader_rid = RID()
+	if GPUComputeManager.is_available():
+		if _uniform_set.is_valid():
+			GPUComputeManager.free_rid(_uniform_set)
+			_uniform_set = RID()
+		if _buffer_params.is_valid():
+			GPUComputeManager.free_rid(_buffer_params)
+			_buffer_params = RID()
+		if _buffer_next.is_valid():
+			GPUComputeManager.free_rid(_buffer_next)
+			_buffer_next = RID()
+		if _buffer_damage.is_valid():
+			GPUComputeManager.free_rid(_buffer_damage)
+			_buffer_damage = RID()
+		if _compute_pipeline.is_valid():
+			GPUComputeManager.free_rid(_compute_pipeline)
+			_compute_pipeline = RID()
+		if _compute_shader_rid.is_valid():
+			GPUComputeManager.free_rid(_compute_shader_rid)
+			_compute_shader_rid = RID()
 	_compute_available = false
 
 func _process(delta: float) -> void:
@@ -356,8 +354,7 @@ func _heal_organs(delta: float, organ_mult: float) -> void:
 ## Attempts to initialize the GPU compute shader. Falls back gracefully if
 ## no RenderingDevice is available (headless mode).
 func _init_compute_shader() -> void:
-	_rendering_device = RenderingServer.get_rendering_device()
-	if _rendering_device == null:
+	if not GPUComputeManager.is_available():
 		_compute_available = false
 		return
 	# Load the GLSL compute shader as an RDShaderFile resource (same pattern as
@@ -370,32 +367,32 @@ func _init_compute_shader() -> void:
 	if spirv == null:
 		_compute_available = false
 		return
-	_compute_shader_rid = _rendering_device.shader_create_from_spirv(spirv)
-	if not _compute_shader_rid.is_valid():
+	_compute_pipeline = GPUComputeManager.create_compute_pipeline(_COMPUTE_SHADER_PATH, "neural_regen")
+	if not _compute_pipeline.is_valid():
 		_compute_available = false
 		return
-	_compute_pipeline = _rendering_device.compute_pipeline_create(_compute_shader_rid)
-	if not _rendering_device.compute_pipeline_is_valid(_compute_pipeline):
-		_compute_available = false
-		return
+	_compute_shader_rid = GPUComputeManager.get_shader_rid("neural_regen")
 	# Allocate buffers: damage map + heal map (interleaved) + params.
 	var cell_count: int = _GRID_SIZE * _GRID_SIZE
 	# Each cell: vec2 (damage, heal_chemical) = 8 bytes. Two buffers (current/next).
 	var map_bytes: int = cell_count * 8
-	_buffer_damage = _rendering_device.storage_buffer_create(map_bytes)
-	_buffer_next = _rendering_device.storage_buffer_create(map_bytes)
+	var empty_map: PackedByteArray = PackedByteArray()
+	empty_map.resize(map_bytes)
+	empty_map.fill(0)
+	_buffer_damage = GPUComputeManager.create_storage_buffer(empty_map)
+	_buffer_next = GPUComputeManager.create_storage_buffer(empty_map)
 	if _buffer_damage == RID() or _buffer_next == RID():
 		_compute_available = false
 		return
 	# Upload initial data to the damage buffer.
 	var packed_data: PackedByteArray = _pack_map_to_bytes(_damage_map, _heal_map)
-	_rendering_device.buffer_update(_buffer_damage, 0, packed_data.size(), packed_data)
+	GPUComputeManager.update_buffer(_buffer_damage, 0, packed_data)
 	# Params: feed_rate, kill_rate, diffusion_rate, delta_time (16 bytes).
 	var params: PackedFloat32Array = PackedFloat32Array([0.055, 0.062, 1.0, 0.1])
 	var params_bytes: PackedByteArray = params.to_byte_array()
 	# binding 2 is declared as `uniform SimParams` (std140) in the shader,
 	# so we must create a UniformBuffer — not a StorageBuffer — for it.
-	_buffer_params = _rendering_device.uniform_buffer_create(params_bytes.size(), params_bytes)
+	_buffer_params = GPUComputeManager.create_uniform_buffer(params_bytes)
 	# Build uniform set: binding 0 = damage, 1 = next, 2 = params.
 	_uniform_set = _create_uniform_set(_buffer_damage, _buffer_next, _buffer_params)
 	_compute_available = true
@@ -418,29 +415,27 @@ func _create_uniform_set(buf_damage: RID, buf_next: RID, buf_params: RID) -> RID
 	u_params.binding = 2
 	u_params.add_id(buf_params)
 	uniforms.append(u_params)
-	return _rendering_device.uniform_set_create(uniforms, _compute_shader_rid, 0)
+	return GPUComputeManager.create_uniform_set(uniforms, _compute_shader_rid, 0)
 
 ## Runs one GPU compute step of the reaction-diffusion healing simulation.
 func _run_compute_step() -> void:
-	if not _compute_available or _rendering_device == null:
+	if not _compute_available or not GPUComputeManager.is_available():
 		return
-	if not _rendering_device.compute_pipeline_is_valid(_compute_pipeline):
+	if not _compute_pipeline.is_valid():
 		return
 	# Dispatch: 64x64 grid / 8x8 workgroup = 8x8 groups.
 	@warning_ignore("integer_division")
 	var groups_x: int = _GRID_SIZE / 8
 	@warning_ignore("integer_division")
 	var groups_y: int = _GRID_SIZE / 8
-	var cl: int = _rendering_device.compute_list_begin()
-	_rendering_device.compute_list_bind_compute_pipeline(cl, _compute_pipeline)
-	_rendering_device.compute_list_bind_uniform_set(cl, _uniform_set, 0)
-	_rendering_device.compute_list_dispatch(cl, groups_x, groups_y, 1)
-	_rendering_device.compute_list_end()
+	GPUComputeManager.dispatch_compute(_compute_pipeline, _uniform_set, groups_x, groups_y, 1)
 	# Swap buffers: next becomes current for the next step.
 	var tmp: RID = _buffer_damage
 	_buffer_damage = _buffer_next
 	_buffer_next = tmp
 	# Rebuild uniform set with swapped buffers.
+	if _uniform_set.is_valid():
+		GPUComputeManager.free_rid(_uniform_set)
 	_uniform_set = _create_uniform_set(_buffer_damage, _buffer_next, _buffer_params)
 	compute_heal_step.emit(true)
 

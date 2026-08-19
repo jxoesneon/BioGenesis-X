@@ -15,6 +15,23 @@ var _juicee_node: Node = null
 # Active tween tracking — maps node RID to Tween for explicit cleanup.
 var _active_tweens: Dictionary = {}
 
+# --- Object pooling ---
+# Pre-allocated pools of reusable VFX containers. Each pool stores Node3D
+# containers carrying GPUParticles3D + OmniLight3D children, kept invisible
+# and parented to this autoload until acquired by a spawn_* call.
+const _POOL_SIZE: int = 32
+var _impact_pool: Array[Node3D] = []
+var _muzzle_pool: Array[Node3D] = []
+var _explosion_pool: Array[Node3D] = []
+var _shield_ripple_pool: Array[Node3D] = []
+# Count of VFX currently active (acquired from a pool and live in the scene).
+var _active_vfx_count: int = 0
+
+# --- VFX profile registry ---
+# Static registry mapping profile_id -> VFXProfile, populated at load time by
+# game systems so any caller can spawn a data-driven effect by id.
+static var _vfx_profiles: Dictionary = {}
+
 ## Spawn an impact effect at the given world position.
 ## [param normal] is the surface normal at the hit point (used to orient the
 ## bio-impact burn decal flat against the hull). Defaults to UP when unknown.
@@ -23,12 +40,18 @@ func spawn_impact(pos: Vector3, color: Color, hit_shield: bool, damage: float, n
 	var root := Engine.get_main_loop() as SceneTree
 	if not root or not root.current_scene:
 		return null
-	var vfx: Node3D = _create_impact_node(color, hit_shield, damage)
+	if _active_vfx_count >= MAX_ACTIVE_VFX:
+		return null
+	var vfx: Node3D = _acquire_from_pool(_impact_pool, func() -> Node3D: return _make_bare_container("ImpactVFX", 1))
+	_apply_impact_config(vfx, color, hit_shield, damage)
+	vfx.visible = true
 	vfx.global_position = pos
-	root.current_scene.add_child(vfx)
+	vfx.reparent(root.current_scene)
 	# Bio-impact burn decal — organic scorch + energy discharge that fades over
 	# time. Null-safe: skipped if the shader isn't registered.
 	_attach_impact_burn_decal(vfx, normal, damage, color)
+	_add_pool_cleanup_timer(vfx, 1.0, _impact_pool)
+	_active_vfx_count += 1
 	# Juicee impact juice: 3D camera shake + hit-stop + FOV punch, scaled by damage.
 	_trigger_combat_juice(damage, hit_shield)
 	return vfx
@@ -38,10 +61,16 @@ func spawn_muzzle_flash(pos: Vector3, direction: Vector3, color: Color) -> Node3
 	var root := Engine.get_main_loop() as SceneTree
 	if not root or not root.current_scene:
 		return null
-	var flash := _create_muzzle_flash(color)
+	if _active_vfx_count >= MAX_ACTIVE_VFX:
+		return null
+	var flash := _acquire_from_pool(_muzzle_pool, func() -> Node3D: return _make_bare_container("MuzzleFlash", 1))
+	_apply_muzzle_flash_config(flash, color)
+	flash.visible = true
 	flash.global_position = pos
 	flash.look_at(pos + direction, Vector3.UP)
-	root.current_scene.add_child(flash)
+	flash.reparent(root.current_scene)
+	_add_pool_cleanup_timer(flash, 0.2, _muzzle_pool)
+	_active_vfx_count += 1
 	return flash
 
 ## Spawn an explosion at the given world position. Used for enemy death,
@@ -50,9 +79,15 @@ func spawn_explosion(pos: Vector3, color: Color, scale: float = 1.0) -> Node3D:
 	var root := Engine.get_main_loop() as SceneTree
 	if not root or not root.current_scene:
 		return null
-	var explosion := _create_explosion(color, scale)
+	if _active_vfx_count >= MAX_ACTIVE_VFX:
+		return null
+	var explosion := _acquire_from_pool(_explosion_pool, func() -> Node3D: return _make_bare_container("Explosion", 2))
+	_apply_explosion_config(explosion, color, scale)
+	explosion.visible = true
 	explosion.global_position = pos
-	root.current_scene.add_child(explosion)
+	explosion.reparent(root.current_scene)
+	_add_pool_cleanup_timer(explosion, 2.0, _explosion_pool)
+	_active_vfx_count += 1
 	# Juicee explosion juice: big shake + hit-stop + FOV kick, scaled by blast size.
 	var juicee: Node = _get_juicee()
 	if juicee:
@@ -67,14 +102,345 @@ func spawn_shield_ripple(pos: Vector3, normal: Vector3, color: Color) -> Node3D:
 	var root := Engine.get_main_loop() as SceneTree
 	if not root or not root.current_scene:
 		return null
-	var ripple := _create_shield_ripple(color)
+	if _active_vfx_count >= MAX_ACTIVE_VFX:
+		return null
+	var ripple := _acquire_from_pool(_shield_ripple_pool, func() -> Node3D: return _make_bare_container("ShieldRipple", 1))
+	_apply_shield_ripple_config(ripple, color)
+	ripple.visible = true
 	ripple.global_position = pos
 	ripple.look_at(pos + normal, Vector3.UP)
-	root.current_scene.add_child(ripple)
+	ripple.reparent(root.current_scene)
+	_add_pool_cleanup_timer(ripple, 0.8, _shield_ripple_pool)
+	_active_vfx_count += 1
 	return ripple
 
 # ==============================================================================
-# Internal: Particle node factories
+# Internal: Object pooling infrastructure
+# ==============================================================================
+
+## Called when the autoload enters the tree. Pre-allocates the VFX pools so the
+## first burst of combat effects doesn't stall on Node3D/GPUParticles3D alloc.
+func _ready() -> void:
+	_init_pools()
+
+## Pre-creates [_POOL_SIZE] reusable containers per VFX type, each carrying the
+## appropriate number of GPUParticles3D children plus an OmniLight3D. Containers
+## start invisible and parented to this autoload until acquired by a spawn.
+func _init_pools() -> void:
+	for i in _POOL_SIZE:
+		_impact_pool.append(_make_bare_container("ImpactVFX", 1))
+		_muzzle_pool.append(_make_bare_container("MuzzleFlash", 1))
+		_explosion_pool.append(_make_bare_container("Explosion", 2))
+		_shield_ripple_pool.append(_make_bare_container("ShieldRipple", 1))
+
+## Builds an invisible Node3D container with [param particle_count] named
+## GPUParticles3D children ("Particles0", "Particles1", ...) and one OmniLight3D
+## ("Light"). Parented to this autoload so it is processed but never rendered
+## until acquired and re-parented into the active scene.
+func _make_bare_container(node_name: String, particle_count: int) -> Node3D:
+	var container := Node3D.new()
+	container.name = node_name
+	container.visible = false
+	for i in particle_count:
+		var particles := GPUParticles3D.new()
+		particles.name = "Particles%d" % i
+		particles.emitting = false
+		container.add_child(particles)
+	var light := OmniLight3D.new()
+	light.name = "Light"
+	light.visible = true
+	container.add_child(light)
+	add_child(container)
+	return container
+
+## Returns a node from [param pool] if one is available, otherwise invokes
+## [param factory] to create a fresh one. The returned node is hidden and owned
+## by this autoload; the caller is responsible for configuring, showing, and
+## re-parenting it into the scene.
+func _acquire_from_pool(pool: Array[Node3D], factory: Callable) -> Node3D:
+	if not pool.is_empty():
+		return pool.pop_back()
+	return factory.call()
+
+## Recycles a VFX container back into [param pool]: stops all particle systems,
+## frees transient children (decals / cleanup timers), kills tracked tweens,
+## hides the node, and re-parents it to this autoload. Called automatically when
+## a pool cleanup timer expires instead of queue_free-ing the node.
+func _release_to_pool(pool: Array[Node3D], node: Node3D) -> void:
+	if not is_instance_valid(node):
+		return
+	_active_vfx_count = max(0, _active_vfx_count - 1)
+	for child in node.get_children():
+		if child is GPUParticles3D:
+			child.emitting = false
+		elif child is Timer or child is MeshInstance3D:
+			child.queue_free()
+	cleanup_tweens_for_node(node)
+	node.visible = false
+	var root := Engine.get_main_loop() as SceneTree
+	if root and root.current_scene and node.get_parent() == root.current_scene:
+		node.reparent(self)
+	elif node.get_parent() != self:
+		node.reparent(self)
+	pool.append(node)
+
+## Attaches a one-shot Timer that returns [param node] to [param pool] after
+## [param delay] seconds, replacing the legacy queue_free cleanup so pooled
+## nodes are recycled instead of freed.
+func _add_pool_cleanup_timer(node: Node3D, delay: float, pool: Array[Node3D]) -> void:
+	var timer := Timer.new()
+	timer.name = "CleanupTimer"
+	timer.wait_time = delay
+	timer.one_shot = true
+	timer.autostart = true
+	timer.timeout.connect(func() -> void:
+		if is_instance_valid(node):
+			_release_to_pool(pool, node)
+	)
+	node.add_child(timer)
+
+# ==============================================================================
+# Internal: Pooled VFX configuration (applied on acquire)
+# ==============================================================================
+
+## (Re)configures an impact container's Particles0 + Light using the same
+## parameters as the legacy _create_impact_node factory. Children are created if
+## missing so this works on both bare pooled containers and fresh nodes.
+func _apply_impact_config(container: Node3D, color: Color, hit_shield: bool, damage: float) -> void:
+	# Scale based on damage
+	var intensity: float = clampf(damage / 50.0, 0.3, 2.0)
+	var particles := container.get_node_or_null("Particles0") as GPUParticles3D
+	if particles == null:
+		particles = GPUParticles3D.new()
+		particles.name = "Particles0"
+		container.add_child(particles)
+	# Spark/burst particles
+	particles.amount = hit_shield and 24 or 16
+	particles.lifetime = 0.4
+	particles.explosiveness = 1.0
+	particles.randomness = 0.8
+	particles.one_shot = true
+	var mat := ParticleProcessMaterial.new()
+	mat.direction = Vector3.ZERO
+	mat.spread = 35.0 if hit_shield else 25.0
+	mat.initial_velocity_min = 3.0 * intensity
+	mat.initial_velocity_max = 12.0 * intensity
+	mat.gravity = Vector3.ZERO
+	mat.color = color
+	mat.color_ramp = _create_fade_ramp_texture(color)
+	mat.scale_min = 0.02
+	mat.scale_max = 0.08 * intensity
+	particles.process_material = mat
+	var mesh := SphereMesh.new()
+	mesh.radius = 0.04
+	mesh.height = 0.08
+	particles.draw_pass_1 = mesh
+	particles.emitting = true
+	particles.restart()
+	# Brief flash light
+	var light := container.get_node_or_null("Light") as OmniLight3D
+	if light == null:
+		light = OmniLight3D.new()
+		light.name = "Light"
+		container.add_child(light)
+	light.light_color = color
+	light.light_energy = 5.0 * intensity
+	light.omni_range = 4.0 * intensity
+	light.omni_attenuation = 1.2
+
+## (Re)configures a muzzle-flash container's Particles0 + Light.
+func _apply_muzzle_flash_config(container: Node3D, color: Color) -> void:
+	var particles := container.get_node_or_null("Particles0") as GPUParticles3D
+	if particles == null:
+		particles = GPUParticles3D.new()
+		particles.name = "Particles0"
+		container.add_child(particles)
+	# Flash particles — brief outward burst
+	particles.amount = 8
+	particles.lifetime = 0.08
+	particles.explosiveness = 1.0
+	particles.one_shot = true
+	var mat := ParticleProcessMaterial.new()
+	mat.direction = Vector3.FORWARD
+	mat.spread = 15.0
+	mat.initial_velocity_min = 5.0
+	mat.initial_velocity_max = 15.0
+	mat.gravity = Vector3.ZERO
+	mat.color = color
+	mat.color_ramp = _create_fade_ramp_texture(color)
+	mat.scale_min = 0.05
+	mat.scale_max = 0.15
+	particles.process_material = mat
+	var mesh := SphereMesh.new()
+	mesh.radius = 0.06
+	mesh.height = 0.12
+	particles.draw_pass_1 = mesh
+	particles.emitting = true
+	particles.restart()
+	# Bright flash light
+	var light := container.get_node_or_null("Light") as OmniLight3D
+	if light == null:
+		light = OmniLight3D.new()
+		light.name = "Light"
+		container.add_child(light)
+	light.light_color = color
+	light.light_energy = 8.0
+	light.omni_range = 6.0
+	light.omni_attenuation = 1.0
+
+## (Re)configures an explosion container's Particles0 (blast) + Particles1
+## (debris) + Light.
+func _apply_explosion_config(container: Node3D, color: Color, scale: float) -> void:
+	var particles := container.get_node_or_null("Particles0") as GPUParticles3D
+	if particles == null:
+		particles = GPUParticles3D.new()
+		particles.name = "Particles0"
+		container.add_child(particles)
+	# Main blast particles
+	particles.amount = int(60 * scale)
+	particles.lifetime = 0.8
+	particles.explosiveness = 1.0
+	particles.randomness = 0.9
+	particles.one_shot = true
+	var mat := ParticleProcessMaterial.new()
+	mat.direction = Vector3.ZERO
+	mat.spread = 45.0
+	mat.initial_velocity_min = 5.0 * scale
+	mat.initial_velocity_max = 25.0 * scale
+	mat.gravity = Vector3.ZERO
+	mat.color = color
+	mat.color_ramp = _create_explosion_ramp_texture(color)
+	mat.scale_min = 0.05 * scale
+	mat.scale_max = 0.3 * scale
+	mat.turbulence_enabled = true
+	mat.turbulence_noise_scale = 2.0
+	mat.turbulence_influence_min = 0.2
+	mat.turbulence_influence_max = 0.5
+	particles.process_material = mat
+	var mesh := SphereMesh.new()
+	mesh.radius = 0.08
+	mesh.height = 0.16
+	particles.draw_pass_1 = mesh
+	particles.emitting = true
+	particles.restart()
+	# Secondary debris chunks
+	var debris := container.get_node_or_null("Particles1") as GPUParticles3D
+	if debris == null:
+		debris = GPUParticles3D.new()
+		debris.name = "Particles1"
+		container.add_child(debris)
+	debris.amount = int(12 * scale)
+	debris.lifetime = 1.5
+	debris.explosiveness = 1.0
+	debris.randomness = 0.7
+	debris.one_shot = true
+	var debris_mat := ParticleProcessMaterial.new()
+	debris_mat.direction = Vector3.ZERO
+	debris_mat.spread = 30.0
+	debris_mat.initial_velocity_min = 3.0 * scale
+	debris_mat.initial_velocity_max = 10.0 * scale
+	debris_mat.gravity = Vector3.ZERO
+	debris_mat.color = Color(0.4, 0.3, 0.2, 1.0)
+	debris_mat.color_ramp = _create_fade_ramp_texture(Color(0.4, 0.3, 0.2, 1.0))
+	debris_mat.scale_min = 0.1 * scale
+	debris_mat.scale_max = 0.25 * scale
+	debris_mat.angular_velocity_min = 5.0
+	debris_mat.angular_velocity_max = 15.0
+	debris.process_material = debris_mat
+	var debris_mesh := BoxMesh.new()
+	debris_mesh.size = Vector3(0.15, 0.15, 0.15)
+	debris.draw_pass_1 = debris_mesh
+	debris.emitting = true
+	debris.restart()
+	# Bright explosion light
+	var light := container.get_node_or_null("Light") as OmniLight3D
+	if light == null:
+		light = OmniLight3D.new()
+		light.name = "Light"
+		container.add_child(light)
+	light.light_color = color
+	light.light_energy = 15.0 * scale
+	light.omni_range = 15.0 * scale
+	light.omni_attenuation = 1.5
+
+## (Re)configures a shield-ripple container's Particles0 + Light.
+func _apply_shield_ripple_config(container: Node3D, color: Color) -> void:
+	var particles := container.get_node_or_null("Particles0") as GPUParticles3D
+	if particles == null:
+		particles = GPUParticles3D.new()
+		particles.name = "Particles0"
+		container.add_child(particles)
+	# Expanding ring particles
+	particles.amount = 32
+	particles.lifetime = 0.5
+	particles.explosiveness = 1.0
+	particles.one_shot = true
+	var mat := ParticleProcessMaterial.new()
+	mat.direction = Vector3.BACK
+	mat.spread = 5.0
+	mat.initial_velocity_min = 2.0
+	mat.initial_velocity_max = 5.0
+	mat.gravity = Vector3.ZERO
+	mat.color = color
+	mat.color_ramp = _create_fade_ramp_texture(color)
+	mat.scale_min = 0.03
+	mat.scale_max = 0.1
+	particles.process_material = mat
+	var mesh := SphereMesh.new()
+	mesh.radius = 0.05
+	mesh.height = 0.1
+	particles.draw_pass_1 = mesh
+	particles.emitting = true
+	particles.restart()
+	# Shield flash light
+	var light := container.get_node_or_null("Light") as OmniLight3D
+	if light == null:
+		light = OmniLight3D.new()
+		light.name = "Light"
+		container.add_child(light)
+	light.light_color = color
+	light.light_energy = 6.0
+	light.omni_range = 5.0
+	light.omni_attenuation = 1.0
+
+# ==============================================================================
+# Internal: VFX profile registry
+# ==============================================================================
+
+## Registers a VFXProfile under its profile_id so it can be spawned by id.
+static func register_vfx_profile(profile: VFXProfile) -> void:
+	if profile == null:
+		return
+	_vfx_profiles[profile.profile_id] = profile
+
+## Returns the VFXProfile registered under [param id], or null if not found.
+static func get_vfx_profile(id: String) -> VFXProfile:
+	return _vfx_profiles.get(id) as VFXProfile
+
+## Spawns a VFX described by a registered VFXProfile at [param pos], oriented to
+## [param normal]. Delegates to the matching spawn_* method using profile-derived
+## parameters. Returns the spawned Node3D (or null if the profile is unknown or
+## the active-VFX budget is exhausted).
+func spawn_from_profile(profile_id: String, pos: Vector3, normal: Vector3 = Vector3.UP) -> Node3D:
+	var profile := get_vfx_profile(profile_id)
+	if profile == null:
+		return null
+	match profile.vfx_type:
+		"impact":
+			return spawn_impact(pos, profile.color_base, false, float(profile.particle_count) * 2.0, normal)
+		"muzzle_flash":
+			return spawn_muzzle_flash(pos, normal, profile.color_base)
+		"explosion":
+			return spawn_explosion(pos, profile.color_base, clampf(float(profile.particle_count) / 60.0, 0.1, 3.0))
+		"shield_ripple":
+			return spawn_shield_ripple(pos, normal, profile.color_base)
+		"dissolve":
+			return null
+		_:
+			return null
+
+# ==============================================================================
+# Internal: Particle node factories (legacy, non-pooled)
 # ==============================================================================
 
 func _create_impact_node(color: Color, hit_shield: bool, damage: float) -> Node3D:

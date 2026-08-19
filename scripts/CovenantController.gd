@@ -61,14 +61,20 @@ var _flight_objective_pending: bool = false
 # ============================================================================
 
 func _get_quest_id() -> String:
+	if quest_definition:
+		return quest_definition.quest_id
 	return QUEST_ID
 
 
 func _get_dialogue_path() -> String:
+	if quest_definition:
+		return quest_definition.dialogue_path
 	return COVENANT_DIALOGUE_PATH
 
 
 func _get_objective_ids() -> Dictionary:
+	if quest_definition:
+		return quest_definition.objective_ids
 	return {
 		"approach": OBJ_APPROACH,
 		"dialogue": OBJ_DIALOGUE,
@@ -78,6 +84,8 @@ func _get_objective_ids() -> Dictionary:
 
 
 func _save_key() -> String:
+	if quest_definition:
+		return quest_definition.save_key
 	return SAVE_KEY
 
 

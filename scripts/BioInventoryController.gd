@@ -20,9 +20,39 @@ var _inventory: Dictionary = {
 	"void_crystal": 0,
 }
 
+# Static registry: { "item_id": ItemDefinition }
+static var _registry: Dictionary = {}
+
+
+static func register_item(def: ItemDefinition) -> void:
+	if def == null or def.item_id.is_empty():
+		return
+	_registry[def.item_id] = def
+
+
+static func get_item_definition(item_id: String) -> ItemDefinition:
+	return _registry.get(item_id, null)
+
+
+static func load_definitions_from_dir(dir_path: String = "res://data/items") -> void:
+	var dir := DirAccess.open(dir_path)
+	if dir == null:
+		return
+	dir.list_dir_begin()
+	var file_name := dir.get_next()
+	while file_name != "":
+		if not dir.current_is_dir() and file_name.ends_with(".tres"):
+			var res_path := dir_path.path_join(file_name)
+			var def := load(res_path) as ItemDefinition
+			if def != null:
+				register_item(def)
+		file_name = dir.get_next()
+	dir.list_dir_end()
+
 
 func _ready() -> void:
 	add_to_group("inventory_controller")
+	load_definitions_from_dir()
 
 
 func print_inventory() -> void:
@@ -58,3 +88,16 @@ func take_item(item_id: String, amount: int) -> bool:
 	_inventory[item_id] -= amount
 	inventory_changed.emit()
 	return true
+
+
+# --- ITEM DEFINITION REGISTRY ACCESS ---
+
+func get_item_definition_for(item_id: String) -> ItemDefinition:
+	return get_item_definition(item_id)
+
+
+func get_all_known_items() -> Array[ItemDefinition]:
+	var out: Array[ItemDefinition] = []
+	for item_id in _registry:
+		out.append(_registry[item_id])
+	return out

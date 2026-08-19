@@ -1,0 +1,16 @@
+[gd_resource type="Resource" script_class="ItemDefinition" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/ItemDefinition.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+item_id = "bio_spore"
+display_name = "Bio Spore"
+description = ""
+max_stack = 99
+category = "bio_material"
+rarity = 1
+tags = PackedStringArray()
+bio_effect = ""
+quest_relevance = ""
+icon_path = ""
