@@ -443,6 +443,18 @@ func _populate_debug_section() -> void:
 	_add_checkbox(vbox, "Infinite Fuel (no plasma drain)", "debug", "infinite_fuel")
 	_add_checkbox(vbox, "Infinite Boost (no reserve drain)", "debug", "infinite_boost")
 
+	# --- Event Progression ---
+	_add_section_header(vbox, "Event Progression (Skip / Jump To)")
+	_add_debug_button(vbox, "Skip Intro Cinematic", Color(0.3, 0.85, 1.0), _on_debug_skip_cinematic)
+	_add_debug_button(vbox, "Skip Covenant Dialogue", Color(0.3, 0.85, 1.0), _on_debug_skip_dialogue)
+	_add_debug_button(vbox, "Complete Covenant (Bond + Grant Ship)", Color(0.0, 1.0, 0.6), _on_debug_complete_covenant)
+	_add_debug_button(vbox, "Complete 'Approach' Objective", Color(0.0, 0.9, 0.7), _on_debug_complete_approach)
+	_add_debug_button(vbox, "Complete 'Dialogue' Objective", Color(0.0, 0.9, 0.7), _on_debug_complete_dialogue_obj)
+	_add_debug_button(vbox, "Complete 'Bond' Objective", Color(0.0, 0.9, 0.7), _on_debug_complete_bond)
+	_add_debug_button(vbox, "Complete 'First Flight' Objective", Color(0.0, 0.9, 0.7), _on_debug_complete_flight)
+	_add_debug_button(vbox, "Complete Entire 'First Symbiosis' Quest", Color(0.0, 1.0, 0.6), _on_debug_complete_quest)
+	_add_debug_button(vbox, "Reset Covenant + Quest State", Color(1.0, 0.5, 0.2), _on_debug_reset_progression)
+
 	# --- Time Scale ---
 	_add_section_header(vbox, "Time Scale (Slow-Mo / Fast-Forward)")
 	_add_slider(vbox, "Time Scale (1.0 = real-time)", "debug", "time_scale", 0.1, 4.0, 0.1, _format_multiplier)
@@ -631,6 +643,201 @@ func _create_action_button(text: String, accent: Color) -> Button:
 	btn.add_theme_stylebox_override("hover", style_hover)
 	btn.add_theme_stylebox_override("pressed", style_hover)
 	return btn
+
+## Adds a full-width debug action button to a section. The callback is invoked
+## when the button is pressed.
+func _add_debug_button(parent: VBoxContainer, label_text: String, accent: Color, callback: Callable) -> void:
+	var btn := _create_action_button(label_text, accent)
+	btn.custom_minimum_size = Vector2(680, 36)
+	btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	btn.pressed.connect(callback)
+	parent.add_child(btn)
+
+# ------------------------------------------------------------------------------
+# Event Progression Handlers
+# ------------------------------------------------------------------------------
+
+## Skip the intro cinematic if it is currently playing.
+func _on_debug_skip_cinematic() -> void:
+	_play_ui_click(true)
+	var tree := get_tree()
+	if not tree or not tree.root:
+		return
+	var cinematic: Node = tree.root.get_node_or_null("CinematicIntro/CinematicSequencer")
+	if cinematic == null:
+		# Try as a direct child of root
+		cinematic = tree.root.get_node_or_null("CinematicSequencer")
+	if cinematic and cinematic.has_method("stop_cinematic"):
+		cinematic.stop_cinematic()
+		print("[Debug] Skipped intro cinematic.")
+	else:
+		print("[Debug] No active cinematic found to skip.")
+
+## Skip any active dialogue (covenant or otherwise).
+func _on_debug_skip_dialogue() -> void:
+	_play_ui_click(true)
+	var tree := get_tree()
+	if not tree or not tree.root:
+		return
+	# DialogueUI is a CanvasLayer — search the root for it.
+	var dialogue: Node = null
+	for child in tree.root.get_children():
+		if child is DialogueUI:
+			dialogue = child
+			break
+	if dialogue == null:
+		# Search deeper
+		var found: Array = tree.root.find_children("*", "DialogueUI", true, false)
+		if found.size() > 0:
+			dialogue = found[0]
+	if dialogue and dialogue.has_method("hide_dialogue"):
+		dialogue.hide_dialogue()
+		print("[Debug] Skipped active dialogue.")
+	else:
+		print("[Debug] No active dialogue found to skip.")
+
+## Complete the entire covenant flow: bond + grant ship + complete all objectives.
+func _on_debug_complete_covenant() -> void:
+	_play_ui_click(true)
+	var tree := get_tree()
+	if not tree or not tree.root:
+		return
+	# First skip any active dialogue
+	_on_debug_skip_dialogue()
+	# Complete all covenant objectives in sequence
+	var quest_id := "first_symbiosis"
+	var objectives := ["obj_approach_void_fauna", "obj_complete_covenant_dialogue",
+		"obj_bond_with_void_fauna", "obj_take_first_flight"]
+	if tree.root.has_node("QuestManager"):
+		var qm: Node = tree.root.get_node("QuestManager")
+		for obj_id in objectives:
+			if qm.has_method("complete_objective"):
+				qm.complete_objective(quest_id, obj_id)
+	# Mark the covenant controller as bonded + ship granted
+	var covenant: Node = tree.root.get_node_or_null("CovenantController")
+	if covenant == null:
+		# Search by group
+		var arr := tree.get_nodes_in_group("covenant_controller")
+		if arr.size() > 0:
+			covenant = arr[0]
+	if covenant:
+		if "bond_accepted" in covenant:
+			covenant.set("bond_accepted", true)
+		if "_has_granted_ship" in covenant:
+			covenant.set("_has_granted_ship", true)
+		if "_flow_completed" in covenant:
+			covenant.set("_flow_completed", true)
+		if covenant.has_signal("covenant_bonded"):
+			covenant.emit_signal("covenant_bonded")
+		if covenant.has_signal("ship_granted"):
+			covenant.emit_signal("ship_granted")
+	# Mark the flight controller as bonded
+	var fc: Node = null
+	var fc_arr := tree.get_nodes_in_group("flight_controller")
+	if fc_arr.size() > 0:
+		fc = fc_arr[0]
+	if fc and "is_bonded" in fc:
+		fc.set("is_bonded", true)
+	print("[Debug] Covenant completed — ship bonded and granted.")
+
+## Complete a single objective by ID.
+func _complete_objective_by_id(obj_id: String) -> void:
+	var tree := get_tree()
+	if not tree or not tree.root:
+		return
+	if tree.root.has_node("QuestManager"):
+		var qm: Node = tree.root.get_node("QuestManager")
+		if qm.has_method("complete_objective"):
+			qm.complete_objective("first_symbiosis", obj_id)
+			print("[Debug] Completed objective: %s" % obj_id)
+
+func _on_debug_complete_approach() -> void:
+	_play_ui_click(true)
+	_complete_objective_by_id("obj_approach_void_fauna")
+
+func _on_debug_complete_dialogue_obj() -> void:
+	_play_ui_click(true)
+	_on_debug_skip_dialogue()
+	_complete_objective_by_id("obj_complete_covenant_dialogue")
+
+func _on_debug_complete_bond() -> void:
+	_play_ui_click(true)
+	_complete_objective_by_id("obj_bond_with_void_fauna")
+	# Also mark the ship as bonded
+	var tree := get_tree()
+	if tree:
+		var fc_arr := tree.get_nodes_in_group("flight_controller")
+		if fc_arr.size() > 0 and "is_bonded" in fc_arr[0]:
+			fc_arr[0].set("is_bonded", true)
+
+func _on_debug_complete_flight() -> void:
+	_play_ui_click(true)
+	_complete_objective_by_id("obj_take_first_flight")
+
+## Complete the entire first_symbiosis quest by completing all objectives.
+func _on_debug_complete_quest() -> void:
+	_play_ui_click(true)
+	_on_debug_skip_dialogue()
+	var objectives := ["obj_approach_void_fauna", "obj_complete_covenant_dialogue",
+		"obj_bond_with_void_fauna", "obj_take_first_flight"]
+	for obj_id in objectives:
+		_complete_objective_by_id(obj_id)
+	# Mark covenant as fully completed
+	var tree := get_tree()
+	if tree:
+		var covenant: Node = tree.root.get_node_or_null("CovenantController")
+		if covenant == null:
+			var arr := tree.get_nodes_in_group("covenant_controller")
+			if arr.size() > 0:
+				covenant = arr[0]
+		if covenant:
+			if "bond_accepted" in covenant:
+				covenant.set("bond_accepted", true)
+			if "_has_granted_ship" in covenant:
+				covenant.set("_has_granted_ship", true)
+			if "_flow_completed" in covenant:
+				covenant.set("_flow_completed", true)
+		var fc_arr := tree.get_nodes_in_group("flight_controller")
+		if fc_arr.size() > 0 and "is_bonded" in fc_arr[0]:
+			fc_arr[0].set("is_bonded", true)
+	print("[Debug] Entire 'First Symbiosis' quest completed.")
+
+## Reset all covenant and quest progression to the initial state.
+func _on_debug_reset_progression() -> void:
+	_play_ui_click(true)
+	var tree := get_tree()
+	if not tree or not tree.root:
+		return
+	# Reset covenant controller state
+	var covenant: Node = tree.root.get_node_or_null("CovenantController")
+	if covenant == null:
+		var arr := tree.get_nodes_in_group("covenant_controller")
+		if arr.size() > 0:
+			covenant = arr[0]
+	if covenant:
+		if "bond_accepted" in covenant:
+			covenant.set("bond_accepted", false)
+		if "refused_count" in covenant:
+			covenant.set("refused_count", 0)
+		if "_has_granted_ship" in covenant:
+			covenant.set("_has_granted_ship", false)
+		if "_flow_completed" in covenant:
+			covenant.set("_flow_completed", false)
+	# Reset flight controller bonded state
+	var fc_arr := tree.get_nodes_in_group("flight_controller")
+	if fc_arr.size() > 0 and "is_bonded" in fc_arr[0]:
+		fc_arr[0].set("is_bonded", false)
+	# Clear quest save data
+	if tree.root.has_node("SaveSystem"):
+		var ss: Node = tree.root.get_node("SaveSystem")
+		if "current_save_data" in ss:
+			var data: Dictionary = ss.get("current_save_data")
+			data.erase("covenant")
+			data.erase("quest_weaver")
+			ss.set("current_save_data", data)
+		if ss.has_method("save_game"):
+			ss.call("save_game")
+	print("[Debug] Covenant + quest progression reset to initial state.")
 
 func _add_section_header(parent: VBoxContainer, text: String) -> void:
 	var header := Label.new()
