@@ -55,6 +55,20 @@ var _smoothed_target_pos: Vector2 = Vector2.ZERO
 var _smoothed_lead_pos: Vector2 = Vector2.ZERO
 var _smoothed_planet_marker_pos: Vector2 = Vector2.ZERO
 
+# WeaponSystem signal state (wired from WeaponSystem signals in _locate_weapon_system)
+var _weapon_overheated: bool = false
+var _weapon_lock_state: String = "NONE"
+var _weapon_lock_target: Node3D = null
+var _in_combat: bool = false
+
+# Hit marker state — set by projectile impact callbacks, consumed in _draw
+var _hit_marker_timer: float = 0.0
+var _hit_marker_is_shield: bool = false
+var _hit_marker_is_kill: bool = false
+
+# Damage flash overlay intensity (0-1), drives red screen vignette
+var _damage_flash_visual: float = 0.0
+
 # Child Node References
 var top_bar_panel: PanelContainer
 var bottom_left_panel: PanelContainer
@@ -83,6 +97,7 @@ var lbl_cam_mode: Label
 var _reticle_pulse_time: float = 0.0
 var _telemetry_ref: Node = null
 var _flight_controller_ref: Node = null
+var _weapon_system_ref: Node = null
 var galaxy_map_instance: Node = null
 
 # Smoothed reticle position — lerps toward mouse_flight_cursor to eliminate
@@ -109,6 +124,7 @@ var _planet_marker_color: Color = Color(0.2, 1.0, 0.5, 0.85)
 func _ready() -> void:
 	mouse_filter = MOUSE_FILTER_IGNORE
 	set_anchors_and_offsets_preset(PRESET_FULL_RECT)
+	add_to_group("flight_hud")
 	_build_ui_layout()
 	_locate_engine_autoloads()
 	if not resized.is_connected(_on_resized):
@@ -120,6 +136,39 @@ func _exit_tree() -> void:
 	if _telemetry_ref and is_instance_valid(_telemetry_ref):
 		if _telemetry_ref.is_connected("telemetry_updated", Callable(self, "_on_telemetry_updated")):
 			_telemetry_ref.disconnect("telemetry_updated", Callable(self, "_on_telemetry_updated"))
+	_disconnect_weapon_signals()
+
+func _disconnect_weapon_signals() -> void:
+	if _weapon_system_ref and is_instance_valid(_weapon_system_ref):
+		var ws: Object = _weapon_system_ref
+		if ws.is_connected("heat_updated", Callable(self, "_on_heat_updated")):
+			ws.disconnect("heat_updated", Callable(self, "_on_heat_updated"))
+		if ws.is_connected("lock_on_state_changed", Callable(self, "_on_lock_on_state_changed")):
+			ws.disconnect("lock_on_state_changed", Callable(self, "_on_lock_on_state_changed"))
+		if ws.is_connected("combat_state_changed", Callable(self, "_on_combat_state_changed")):
+			ws.disconnect("combat_state_changed", Callable(self, "_on_combat_state_changed"))
+		if ws.is_connected("overheat_triggered", Callable(self, "_on_overheat_triggered")):
+			ws.disconnect("overheat_triggered", Callable(self, "_on_overheat_triggered"))
+
+func _on_heat_updated(heat: float, max_heat: float) -> void:
+	var pct: float = max_heat > 0.0 and (heat / max_heat) * 100.0 or 0.0
+	exothermal_heat_pct = clampf(pct, 0.0, 100.0)
+
+func _on_overheat_triggered(is_overheated: bool) -> void:
+	_weapon_overheated = is_overheated
+
+func _on_lock_on_state_changed(state: String, target: Node3D) -> void:
+	_weapon_lock_state = state
+	_weapon_lock_target = target
+
+func _on_combat_state_changed(in_combat: bool) -> void:
+	_in_combat = in_combat
+
+## Called by BioPlasmaProjectile when it hits a target — triggers hit marker display
+func _on_projectile_hit(hit_shield: bool, target_killed: bool) -> void:
+	_hit_marker_timer = 1.0
+	_hit_marker_is_shield = hit_shield
+	_hit_marker_is_kill = target_killed
 
 func _on_resized() -> void:
 	queue_redraw()
@@ -138,6 +187,8 @@ func _locate_engine_autoloads() -> void:
 
 	# Look for parent/sibling FlightController
 	_find_flight_controller()
+	# Locate WeaponSystem and wire its signals
+	_locate_weapon_system()
 
 func _find_flight_controller() -> void:
 	if _flight_controller_ref and is_instance_valid(_flight_controller_ref):
@@ -165,6 +216,46 @@ func _find_flight_controller() -> void:
 			_flight_controller_ref = ships[0]
 			return
 
+func _locate_weapon_system() -> void:
+	if _weapon_system_ref and is_instance_valid(_weapon_system_ref):
+		return
+	# Search siblings/children of the flight controller or parent
+	if _flight_controller_ref and is_instance_valid(_flight_controller_ref):
+		var fc: Node = _flight_controller_ref
+		for child in fc.get_children():
+			if child is WeaponSystem:
+				_weapon_system_ref = child
+				break
+		if not _weapon_system_ref:
+			var parent := fc.get_parent()
+			if parent:
+				for child in parent.get_children():
+					if child is WeaponSystem:
+						_weapon_system_ref = child
+						break
+	# Fallback: search the scene tree
+	if not _weapon_system_ref and is_inside_tree() and get_tree():
+		for ws in get_tree().get_nodes_in_group("weapon_system"):
+			_weapon_system_ref = ws
+			break
+		if not _weapon_system_ref:
+			var p := get_parent()
+			if p:
+				var found := p.find_child("WeaponSystem", true, false)
+				if found and found is WeaponSystem:
+					_weapon_system_ref = found
+	# Wire signals
+	if _weapon_system_ref and is_instance_valid(_weapon_system_ref):
+		var ws: Object = _weapon_system_ref
+		if not ws.is_connected("heat_updated", Callable(self, "_on_heat_updated")):
+			ws.connect("heat_updated", Callable(self, "_on_heat_updated"))
+		if not ws.is_connected("lock_on_state_changed", Callable(self, "_on_lock_on_state_changed")):
+			ws.connect("lock_on_state_changed", Callable(self, "_on_lock_on_state_changed"))
+		if not ws.is_connected("combat_state_changed", Callable(self, "_on_combat_state_changed")):
+			ws.connect("combat_state_changed", Callable(self, "_on_combat_state_changed"))
+		if not ws.is_connected("overheat_triggered", Callable(self, "_on_overheat_triggered")):
+			ws.connect("overheat_triggered", Callable(self, "_on_overheat_triggered"))
+
 func _input(event: InputEvent) -> void:
 	# Mouse input is handled solely by FlightController to avoid double-update jitter.
 	# The HUD reads mouse_flight_cursor from the controller in _process().
@@ -187,6 +278,10 @@ func _process(delta: float) -> void:
 	if not _flight_controller_ref or not is_instance_valid(_flight_controller_ref):
 		_find_flight_controller()
 
+	# Ensure WeaponSystem reference and signals
+	if not _weapon_system_ref or not is_instance_valid(_weapon_system_ref):
+		_locate_weapon_system()
+
 	# Pull updates from FlightController if available
 	if _flight_controller_ref and is_instance_valid(_flight_controller_ref):
 		if "linear_velocity_vector" in _flight_controller_ref:
@@ -207,6 +302,13 @@ func _process(delta: float) -> void:
 			wave_eta_seconds = _flight_controller_ref.wave_eta_seconds
 		if "wave_target_name" in _flight_controller_ref:
 			wave_target_name = _flight_controller_ref.wave_target_name
+		# Combat: pull hull integrity and shield from FlightController
+		if "hull_integrity" in _flight_controller_ref:
+			hull_integrity_pct = clampf(_flight_controller_ref.hull_integrity, 0.0, 100.0)
+		if "bio_shield" in _flight_controller_ref:
+			bio_shield_pct = clampf(_flight_controller_ref.bio_shield, 0.0, 100.0)
+		if "damage_flash_timer" in _flight_controller_ref:
+			_damage_flash_visual = clampf(_flight_controller_ref.damage_flash_timer, 0.0, 1.0)
 	else:
 		mouse_flight_cursor = mouse_flight_cursor.lerp(Vector2.ZERO, delta * 3.5)
 		wave_state = 0
@@ -225,6 +327,10 @@ func _process(delta: float) -> void:
 
 	# Planet directional marker — nearest celestial body indicator + distance.
 	_update_nearest_planet_marker()
+
+	# Decay hit marker timer
+	if _hit_marker_timer > 0.0:
+		_hit_marker_timer = maxf(0.0, _hit_marker_timer - delta * 3.5)
 
 	# Dynamic Tension Index (DTI) Audio Telemetry
 	var dti: float = 0.0
@@ -867,6 +973,16 @@ func _draw() -> void:
 	# 11. Comprehensive Wave Engine & Supercruise HUD Display
 	_draw_wave_engine_hud(center, ui_scale)
 
+	# 12. Hit markers — X shape at screen center when projectiles connect
+	_draw_hit_markers(center, ui_scale)
+
+	# 13. Damage flash overlay — red vignette when taking damage
+	_draw_damage_flash(ui_scale)
+
+	# 14. Overheat warning — red pulsing border when weapons overheated
+	if _weapon_overheated:
+		_draw_overheat_warning(ui_scale)
+
 ## Draws the planet directional marker: an on-screen reticle when the planet is
 ## visible, or an edge arrow pointing toward it when off-screen, plus a
 ## color-coded distance readout. Color: green (far), yellow (approaching),
@@ -1002,3 +1118,60 @@ func _draw_wave_engine_hud(center: Vector2, ui_scale: float) -> void:
 	elif wave_state == 0: # READY cue
 		var txt_cue := "[ SPACE ] WAVE ENGINE READY"
 		draw_string(font, Vector2(center.x - 75 * ui_scale, size.y - 45 * ui_scale), txt_cue, HORIZONTAL_ALIGNMENT_CENTER, -1, int(9 * ui_scale), Color(0.0, 1.0, 0.75, 0.45))
+
+## Draws hit markers — an X at screen center when projectiles connect.
+## Color: cyan for shield hit, orange for hull hit, red+larger for kill.
+func _draw_hit_markers(center: Vector2, ui_scale: float) -> void:
+	if _hit_marker_timer <= 0.0:
+		return
+	var alpha: float = clampf(_hit_marker_timer, 0.0, 1.0)
+	var marker_color: Color
+	var marker_size: float = 12.0 * ui_scale
+	if _hit_marker_is_kill:
+		marker_color = Color(1.0, 0.2, 0.1, alpha)
+		marker_size = 18.0 * ui_scale
+	elif _hit_marker_is_shield:
+		marker_color = Color(0.0, 0.8, 1.0, alpha)
+	else:
+		marker_color = Color(1.0, 0.7, 0.0, alpha)
+	var w: float = maxf(1.5, 2.0 * ui_scale)
+	# X shape — four diagonal lines
+	draw_line(center - Vector2(marker_size, marker_size), center - Vector2(marker_size * 0.4, marker_size * 0.4), marker_color, w)
+	draw_line(center + Vector2(marker_size, marker_size), center + Vector2(marker_size * 0.4, marker_size * 0.4), marker_color, w)
+	draw_line(center - Vector2(marker_size, -marker_size), center - Vector2(marker_size * 0.4, -marker_size * 0.4), marker_color, w)
+	draw_line(center + Vector2(marker_size, -marker_size), center + Vector2(marker_size * 0.4, -marker_size * 0.4), marker_color, w)
+	# Center dot for kill confirmation
+	if _hit_marker_is_kill:
+		draw_circle(center, 3.0 * ui_scale, marker_color)
+
+## Draws a red vignette overlay when the ship takes damage.
+func _draw_damage_flash(ui_scale: float) -> void:
+	if _damage_flash_visual <= 0.01:
+		return
+	var alpha: float = _damage_flash_visual * 0.5
+	var edge_width: float = minf(size.x, size.y) * 0.35
+	# Red border gradient — thicker at edges, transparent at center
+	var col := Color(1.0, 0.05, 0.0, alpha)
+	# Top edge
+	draw_rect(Rect2(0, 0, size.x, edge_width), col, false, maxf(2.0, 4.0 * ui_scale))
+	# Bottom edge
+	draw_rect(Rect2(0, size.y - edge_width, size.x, edge_width), col, false, maxf(2.0, 4.0 * ui_scale))
+	# Left edge
+	draw_rect(Rect2(0, 0, edge_width, size.y), col, false, maxf(2.0, 4.0 * ui_scale))
+	# Right edge
+	draw_rect(Rect2(size.x - edge_width, 0, edge_width, size.y), col, false, maxf(2.0, 4.0 * ui_scale))
+
+## Draws a pulsing red border warning when weapons are overheated.
+func _draw_overheat_warning(ui_scale: float) -> void:
+	var pulse: float = 0.5 + sin(_reticle_pulse_time * 8.0) * 0.3
+	var col := Color(1.0, 0.2, 0.0, pulse * 0.7)
+	var w: float = maxf(3.0, 5.0 * ui_scale)
+	draw_rect(Rect2(0, 0, size.x, size.y), col, false, w)
+	# Warning text
+	var font := get_theme_default_font()
+	if font:
+		var txt := "WEAPONS OVERHEATED"
+		draw_string(font, Vector2(center_of_screen().x - 60 * ui_scale, 50 * ui_scale), txt, HORIZONTAL_ALIGNMENT_CENTER, -1, int(12 * ui_scale), Color(1.0, 0.3, 0.0, pulse))
+
+func center_of_screen() -> Vector2:
+	return size * 0.5

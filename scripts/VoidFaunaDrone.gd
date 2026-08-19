@@ -88,6 +88,8 @@ func _flash_hit() -> void:
 				mat.emission_energy_multiplier = 2.0
 
 func _on_destroyed() -> void:
+	# Spawn explosion VFX at death position
+	CombatVFX.spawn_explosion(global_position, Color(0.2, 1.0, 0.5, 1.0), 1.2)
 	var ml := Engine.get_main_loop()
 	if ml is SceneTree and ml.root:
 		if ml.root.has_node("BioAudioSynth"):

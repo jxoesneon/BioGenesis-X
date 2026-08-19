@@ -32,6 +32,7 @@ ScaledSpaceManager="*res://scripts/ScaledSpaceManager.gd"
 SettingsSystem="*res://scripts/SettingsSystem.gd"
 GalacticNoiseField="*res://scripts/GalacticNoiseField.gd"
 LoadingScreenManager="*res://scripts/LoadingScreenManager.gd"
+CombatVFX="*res://scripts/CombatVFX.gd"
 
 [display]
 

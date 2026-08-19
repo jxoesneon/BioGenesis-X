@@ -33,6 +33,7 @@ extends Node3D
 
 const SystemNoiseFieldClass: GDScript = preload("res://scripts/SystemNoiseField.gd")
 const ProceduralAsteroidMeshClass: GDScript = preload("res://scripts/ProceduralAsteroidMesh.gd")
+const VoidFaunaDroneClass: GDScript = preload("res://scripts/VoidFaunaDrone.gd")
 
 # --- Chunk grid configuration ---
 const FAR_CHUNK_SIZE_AU: float = 1.0
@@ -687,8 +688,13 @@ func _spawn_physics_asteroid(parent: Node3D, local_pos: Vector3, rng: RandomNumb
 	parent.add_child(body)
 
 func _spawn_enemy_drone(parent: Node3D, local_pos: Vector3, aggression: float, rng: RandomNumberGenerator) -> void:
-	var drone := Node3D.new()
+	# Use a CharacterBody3D base so we can attach the VoidFaunaDrone script
+	# (which extends CharacterBody3D). A bare Node3D cannot host it.
+	var drone := CharacterBody3D.new()
 	drone.name = "StreamedDrone_%d" % rng.randi()
+	# Attach the AI/health/damage script so streamed drones are fully functional
+	# (orbit patrol, take_damage, _on_destroyed, WeaponSystem targeting).
+	drone.set_script(VoidFaunaDroneClass)
 	drone.add_to_group("celestial_bodies")  # Mitigation #1
 	drone.add_to_group("void_fauna")
 	drone.add_to_group("targets")
@@ -697,6 +703,7 @@ func _spawn_enemy_drone(parent: Node3D, local_pos: Vector3, aggression: float, r
 
 	# Mesh
 	var mesh_inst := MeshInstance3D.new()
+	mesh_inst.name = "MeshInstance3D"
 	var prism := PrismMesh.new()
 	prism.size = Vector3(1.5, 1.5, 3.0)
 	mesh_inst.mesh = prism
@@ -709,7 +716,9 @@ func _spawn_enemy_drone(parent: Node3D, local_pos: Vector3, aggression: float, r
 	mesh_inst.material_override = mat
 	drone.add_child(mesh_inst)
 
-	# Collision
+	# Collision — CharacterBody3D with a CollisionShape3D so projectile raycasts
+	# (intersect_ray with collide_with_bodies) and Area3D body_entered signals
+	# register hits. Default collision_layer=1 matches projectile detection.
 	var col := CollisionShape3D.new()
 	var box := BoxShape3D.new()
 	box.size = Vector3(1.5, 1.5, 3.0)
@@ -718,6 +727,12 @@ func _spawn_enemy_drone(parent: Node3D, local_pos: Vector3, aggression: float, r
 
 	drone.position = local_pos
 	parent.add_child(drone)
+
+	# VoidFaunaDrone._ready() sets base_position = global_position on enter-tree,
+	# but set it explicitly afterwards to guarantee the patrol anchor is the spawn
+	# position even if _ready() ordering or @tool timing differs.
+	if drone.has_method("get") and drone.get("base_position") != null:
+		drone.set("base_position", drone.global_position)
 
 func _spawn_anomaly_beacon(parent: Node3D, local_pos: Vector3, intensity: float, _rng: RandomNumberGenerator) -> void:
 	var beacon := MeshInstance3D.new()

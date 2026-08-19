@@ -241,12 +241,18 @@ func fire_primary() -> bool:
 	var proj := _create_bio_plasma_projectile()
 	if is_inside_tree() and get_tree() and get_tree().root:
 		get_tree().root.add_child(proj)
-	
+
 	var fire_transform := muzzle.global_transform
 	proj.global_transform = fire_transform
 	var dir := -fire_transform.basis.z.normalized()
 
 	proj.setup(dir, primary_speed, primary_damage, primary_lifetime)
+	# Visual: cyan-green glowing bolt for disruptor
+	proj.setup_visuals(Color(0.0, 1.0, 0.75, 1.0), 0.3, false)
+	proj.damage_type = BioPlasmaProjectile.DamageType.ENERGY
+
+	# Muzzle flash VFX
+	CombatVFX.spawn_muzzle_flash(muzzle.global_position, dir, Color(0.0, 1.0, 0.75, 1.0))
 
 	# Audio Telemetry: Bio-Plasma Disruptor Fire
 	var pan := -0.6 if muzzle == muzzle_left else 0.6
@@ -272,10 +278,10 @@ func fire_plasma_missiles() -> bool:
 	var proj := _create_bio_plasma_projectile()
 	if is_inside_tree() and get_tree() and get_tree().root:
 		get_tree().root.add_child(proj)
-	
+
 	var fire_transform := muzzle.global_transform
 	proj.global_transform = fire_transform
-	
+
 	# Homing Vector towards locked target if locked
 	var dir := -fire_transform.basis.z.normalized()
 	if lock_state == LockState.LOCKED and is_instance_valid(current_target):
@@ -286,6 +292,12 @@ func fire_plasma_missiles() -> bool:
 		dir = dir.lerp(target_dir, 0.35).normalized()
 
 	proj.setup(dir, missile_speed, missile_damage, missile_lifetime)
+	# Visual: orange-red glowing missile, larger than disruptor bolt
+	proj.setup_visuals(Color(1.0, 0.4, 0.1, 1.0), 0.5, true)
+	proj.damage_type = BioPlasmaProjectile.DamageType.THERMAL
+
+	# Muzzle flash VFX — bigger for missiles
+	CombatVFX.spawn_muzzle_flash(muzzle.global_position, dir, Color(1.0, 0.4, 0.1, 1.0))
 
 	# Audio Telemetry: Heavier Disruptor Fire Transient
 	var pan := -0.6 if muzzle == muzzle_left else 0.6

@@ -461,7 +461,9 @@ func _spawn_target_drones() -> void:
 		drone_container.add_child(drone)
 		target_drones.append(drone)
 
-## Animates drone patrol orbits over time.
+## Drones spawned by this field are VoidFaunaDrone instances, which handle their
+## own orbital patrol animation in VoidFaunaDrone._physics_process(). No external
+## animation is required here — this is intentionally a no-op.
 func _animate_drones(_delta: float) -> void:
 	pass
 

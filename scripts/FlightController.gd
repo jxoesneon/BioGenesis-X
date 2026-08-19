@@ -121,7 +121,15 @@ var is_boosting: bool = false
 var recharge_timer: float = 0.0
 var camera_shake_intensity: float = 0.0
 var hull_integrity: float = 100.0  # Hull health [0-100], drives audio DTI
+var bio_shield: float = 100.0  # Bio-shield energy [0-100], absorbs damage before hull
+var bio_shield_max: float = 100.0
+var bio_shield_regen_rate: float = 8.0  # Shield regen per second when not taking damage
+var bio_shield_regen_delay: float = 3.0  # Seconds after damage before regen resumes
+var bio_shield_regen_timer: float = 0.0  # Countdown to regen
 var damage_flash_timer: float = 0.0  # Transient damage indicator
+signal shield_hit(absorbed: float, remaining: float)
+signal hull_hit(damage: float, remaining: float)
+signal ship_destroyed
 var mouse_delta: Vector2 = Vector2.ZERO
 var mouse_flight_cursor: Vector2 = Vector2.ZERO ## Normalized 2D tethered flight reticle offset [-1.0, 1.0]
 var fpv_base_pos: Vector3 = Vector3(0.0, 0.65, 4.8) # Default cranial helm pilot eye position
@@ -288,6 +296,13 @@ func _process(delta: float) -> void:
 	# reticle smooths consistently regardless of physics/render frame timing.
 	if mouse_control_enabled and wave_state == WaveState.OFF:
 		mouse_flight_cursor = mouse_flight_cursor.lerp(Vector2.ZERO, clampf(delta * 4.5, 0.0, 1.0))
+
+	# Shield regeneration — delayed after taking damage
+	if bio_shield < bio_shield_max:
+		if bio_shield_regen_timer > 0.0:
+			bio_shield_regen_timer = maxf(0.0, bio_shield_regen_timer - delta)
+		else:
+			bio_shield = minf(bio_shield_max, bio_shield + bio_shield_regen_rate * delta)
 
 func _physics_process(delta: float) -> void:
 	# Skip normal rotation during wave engine CHARGING/ENGAGED — auto-align handles all rotation
@@ -878,14 +893,36 @@ func _handle_thrust(delta: float) -> void:
 		audio.set_pilot_stamina(clampf(bio_plasma_fuel / maxf(1.0, max_bio_plasma_fuel), 0.0, 1.0))
 
 ## Called when the ship takes damage (from BioPlasmaProjectile, collisions, etc.)
+## Shield absorbs damage first, then hull. Triggers shield_hit/hull_hit signals.
 func take_damage(amount: float) -> void:
-	hull_integrity = maxf(0.0, hull_integrity - amount)
-	damage_flash_timer = minf(1.0, damage_flash_timer + amount / 50.0)
-	camera_shake_intensity = maxf(camera_shake_intensity, amount * 0.05)
+	var remaining_damage: float = amount
+	# Shield absorbs first
+	if bio_shield > 0.0:
+		var absorbed: float = minf(bio_shield, remaining_damage)
+		bio_shield = maxf(0.0, bio_shield - absorbed)
+		remaining_damage -= absorbed
+		bio_shield_regen_timer = bio_shield_regen_delay
+		shield_hit.emit(absorbed, bio_shield)
+	# Remaining damage goes to hull
+	if remaining_damage > 0.0:
+		hull_integrity = maxf(0.0, hull_integrity - remaining_damage)
+		damage_flash_timer = minf(1.0, damage_flash_timer + remaining_damage / 50.0)
+		camera_shake_intensity = maxf(camera_shake_intensity, remaining_damage * 0.05)
+		hull_hit.emit(remaining_damage, hull_integrity)
+	else:
+		# Shield absorbed all — smaller shake, no hull flash
+		camera_shake_intensity = maxf(camera_shake_intensity, amount * 0.02)
+		damage_flash_timer = minf(0.3, damage_flash_timer + amount / 100.0)
+
+	# Audio feedback
 	var ml := Engine.get_main_loop()
 	if ml is SceneTree and ml.root and ml.root.has_node("BioAudioSynth"):
 		var audio = ml.root.get_node("BioAudioSynth")
 		audio.trigger_damage(clampf(amount / 50.0, 0.0, 1.0))
+
+	# Death check
+	if hull_integrity <= 0.0:
+		ship_destroyed.emit()
 
 ## Bio-hydro pulse dampening counteracts Newtonian drifting when dampening is enabled.
 func _handle_dampening(delta: float) -> void:
