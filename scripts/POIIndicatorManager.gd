@@ -374,10 +374,12 @@ func _process(_delta: float) -> void:
 	if _container == null:
 		return
 
-	# Hide POI indicators when the galaxy map camera is active — the galaxy
-	# map has its own navigation UI and in-system POI markers are meaningless
-	# at galactic scale.
-	if _camera is GalaxyMapCamera:
+	# Hide POI indicators when the galaxy map is open. The galaxy map is
+	# instantiated as a child of the space_flight scene (not a scene change),
+	# so our cached _camera reference still points at the flight camera.
+	# Check the viewport's actual current camera instead.
+	var viewport_cam: Camera3D = get_viewport().get_camera_3d()
+	if viewport_cam and viewport_cam is GalaxyMapCamera:
 		if _container.visible:
 			_container.visible = false
 		return
