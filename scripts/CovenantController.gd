@@ -91,6 +91,22 @@ func _ready() -> void:
 	# Decide whether to trigger the intro sequence.
 	_maybe_begin_intro()
 
+func _exit_tree() -> void:
+	# Disconnect all signals to prevent orphaned connections.
+	if _dialogue_ui and is_instance_valid(_dialogue_ui):
+		if _dialogue_ui.is_connected("dialogue_ended", on_dialogue_complete):
+			_dialogue_ui.dialogue_ended.disconnect(on_dialogue_complete)
+		if _dialogue_ui.is_connected("choice_made", _on_choice_made):
+			_dialogue_ui.choice_made.disconnect(_on_choice_made)
+	if _flight_controller and is_instance_valid(_flight_controller):
+		if _flight_controller.is_connected("boost_state_changed", _on_player_boost):
+			_flight_controller.boost_state_changed.disconnect(_on_player_boost)
+	if QuestManager:
+		if QuestManager.is_connected("quest_completed", _on_quest_completed):
+			QuestManager.quest_completed.disconnect(_on_quest_completed)
+		if QuestManager.is_connected("objective_completed", _on_objective_completed):
+			QuestManager.objective_completed.disconnect(_on_objective_completed)
+
 
 # ============================================================================
 # PUBLIC API

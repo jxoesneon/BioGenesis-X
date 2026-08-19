@@ -114,6 +114,33 @@ func _ready() -> void:
 	_init_compute_shader()
 	_init_visual_shader()
 
+func _exit_tree() -> void:
+	_free_gpu_resources()
+
+## Frees all GPU RIDs to prevent resource leaks on exit or scene transition.
+func _free_gpu_resources() -> void:
+	if _rendering_device == null:
+		return
+	if _uniform_set.is_valid():
+		_rendering_device.free_rid(_uniform_set)
+		_uniform_set = RID()
+	if _buffer_params.is_valid():
+		_rendering_device.free_rid(_buffer_params)
+		_buffer_params = RID()
+	if _buffer_next.is_valid():
+		_rendering_device.free_rid(_buffer_next)
+		_buffer_next = RID()
+	if _buffer_damage.is_valid():
+		_rendering_device.free_rid(_buffer_damage)
+		_buffer_damage = RID()
+	if _compute_pipeline.is_valid():
+		_rendering_device.free_rid(_compute_pipeline)
+		_compute_pipeline = RID()
+	if _compute_shader_rid.is_valid():
+		_rendering_device.free_rid(_compute_shader_rid)
+		_compute_shader_rid = RID()
+	_compute_available = false
+
 func _process(delta: float) -> void:
 	_time_since_damage += delta
 

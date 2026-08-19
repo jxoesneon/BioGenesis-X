@@ -369,6 +369,9 @@ func spawn_dissolve(target_mesh: MeshInstance3D, color: Color, duration: float =
 	# hard shadow pops as it disintegrates.
 	target_mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	var tween := target_mesh.create_tween()
+	# Tween is automatically killed when the target node is freed, preventing
+	# orphaned tween callbacks. The material is RefCounted and freed when the
+	# tween completes or the node is destroyed.
 	tween.tween_property(mat, "shader_parameter/dissolve_amount", 1.0, duration).set_trans(Tween.TRANS_LINEAR)
 
 # ==============================================================================

@@ -38,7 +38,10 @@ const ASTEROID_RUBBLE_REGOLITH: int = 3
 const ASTEROID_JAGGED_SHRAPNEL: int = 4
 
 # Texture cache: key = "method:seed:args:size" -> ImageTexture
+# Bounded LRU cache — evicts oldest entries when MAX_CACHE_SIZE is reached.
+const MAX_CACHE_SIZE: int = 64
 static var _cache: Dictionary = {}
+static var _cache_order: Array[String] = []
 static var _default_size: int = DEFAULT_TEXTURE_SIZE
 
 
@@ -58,7 +61,7 @@ static func generate_hull_texture(seed_value: int, damage_level: float = 0.0, si
 		return _cache[key]
 	var img := _build_hull_image(seed_value, clampf(damage_level, 0.0, 1.0), sz)
 	var tex := ImageTexture.create_from_image(img)
-	_cache[key] = tex
+	_cache_insert(key, tex)
 	return tex
 
 
@@ -73,7 +76,7 @@ static func generate_planet_texture(archetype: int, seed_value: int, size: int =
 		return _cache[key]
 	var img := _build_planet_image(archetype, seed_value, sz)
 	var tex := ImageTexture.create_from_image(img)
-	_cache[key] = tex
+	_cache_insert(key, tex)
 	return tex
 
 
@@ -87,7 +90,7 @@ static func generate_asteroid_texture(type: int, seed_value: int, size: int = -1
 		return _cache[key]
 	var img := _build_asteroid_image(type, seed_value, sz)
 	var tex := ImageTexture.create_from_image(img)
-	_cache[key] = tex
+	_cache_insert(key, tex)
 	return tex
 
 
@@ -95,22 +98,29 @@ static func generate_asteroid_texture(type: int, seed_value: int, size: int = -1
 ## transitions where procedural assets are no longer needed.
 static func clear_cache() -> void:
 	_cache.clear()
+	_cache_order.clear()
 
 
 ## Clears a single cached entry by its logical key components.
 static func clear_cached_hull(seed_value: int, damage_level: float = 0.0, size: int = -1) -> void:
 	var sz := _resolve_size(size)
-	_cache.erase("hull:%d:%.4f:%d" % [seed_value, clampf(damage_level, 0.0, 1.0), sz])
+	var key := "hull:%d:%.4f:%d" % [seed_value, clampf(damage_level, 0.0, 1.0), sz]
+	_cache.erase(key)
+	_cache_order.erase(key)
 
 
 static func clear_cached_planet(archetype: int, seed_value: int, size: int = -1) -> void:
 	var sz := _resolve_size(size)
-	_cache.erase("planet:%d:%d:%d" % [archetype, seed_value, sz])
+	var key := "planet:%d:%d:%d" % [archetype, seed_value, sz]
+	_cache.erase(key)
+	_cache_order.erase(key)
 
 
 static func clear_cached_asteroid(type: int, seed_value: int, size: int = -1) -> void:
 	var sz := _resolve_size(size)
-	_cache.erase("asteroid:%d:%d:%d" % [type, seed_value, sz])
+	var key := "asteroid:%d:%d:%d" % [type, seed_value, sz]
+	_cache.erase(key)
+	_cache_order.erase(key)
 
 
 ## Sets the default texture resolution for subsequent generations.
@@ -134,6 +144,21 @@ static func get_cache_count() -> int:
 
 static func _resolve_size(size: int) -> int:
 	return size if size > 0 else _default_size
+
+
+## Inserts a texture into the cache with LRU eviction. When the cache exceeds
+## MAX_CACHE_SIZE, the oldest entry is removed.
+static func _cache_insert(key: String, tex: ImageTexture) -> void:
+	if _cache.has(key):
+		# Move to end (most recently used).
+		_cache_order.erase(key)
+	else:
+		# Evict oldest if at capacity.
+		while _cache_order.size() >= MAX_CACHE_SIZE:
+			var oldest: String = _cache_order.pop_front()
+			_cache.erase(oldest)
+	_cache[key] = tex
+	_cache_order.append(key)
 
 
 static func _make_noise(seed_value: int, type: int, freq: float, octaves: int = 4, fractal: int = FastNoiseLite.FRACTAL_FBM) -> FastNoiseLite:

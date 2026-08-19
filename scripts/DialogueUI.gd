@@ -70,6 +70,11 @@ func _ready() -> void:
 	# Pause the game world while dialogue is shown so narrative beats land.
 	process_mode = Node.PROCESS_MODE_ALWAYS
 
+func _exit_tree() -> void:
+	# Mark inactive — nodes are being torn down by the tree, no need to
+	# manually free children (queue_free during _exit_tree causes stack underflow).
+	_is_active = false
+
 
 # ============================================================================
 # PUBLIC API
