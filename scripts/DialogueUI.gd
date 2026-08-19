@@ -82,6 +82,10 @@ func start(resource: DialogueResource, title: String = "", extra_game_states: Ar
 	if not is_instance_valid(resource):
 		push_error("[DialogueUI] Cannot start — dialogue resource is null.")
 		return
+	# If _ready() hasn't run yet (sibling node ordering race), defer until ready.
+	if _root == null:
+		call_deferred("start", resource, title, extra_game_states)
+		return
 	_resource = resource
 	_extra_game_states = extra_game_states
 	_result_snapshot.clear()
@@ -358,8 +362,10 @@ func _build_ui() -> void:
 
 
 func _show_panel() -> void:
-	_root.visible = true
-	_panel.visible = true
+	if _root:
+		_root.visible = true
+	if _panel:
+		_panel.visible = true
 
 
 func _hide_panel() -> void:

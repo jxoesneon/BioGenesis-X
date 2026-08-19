@@ -363,11 +363,9 @@ func _init_compute_shader() -> void:
 	# Params: feed_rate, kill_rate, diffusion_rate, delta_time (16 bytes).
 	var params: PackedFloat32Array = PackedFloat32Array([0.055, 0.062, 1.0, 0.1])
 	var params_bytes: PackedByteArray = params.to_byte_array()
-	_buffer_params = _rendering_device.storage_buffer_create(params_bytes.size())
-	if _buffer_params == RID():
-		_compute_available = false
-		return
-	_rendering_device.buffer_update(_buffer_params, 0, params_bytes.size(), params_bytes)
+	# binding 2 is declared as `uniform SimParams` (std140) in the shader,
+	# so we must create a UniformBuffer — not a StorageBuffer — for it.
+	_buffer_params = _rendering_device.uniform_buffer_create(params_bytes.size(), params_bytes)
 	# Build uniform set: binding 0 = damage, 1 = next, 2 = params.
 	_uniform_set = _create_uniform_set(_buffer_damage, _buffer_next, _buffer_params)
 	_compute_available = true
@@ -386,7 +384,7 @@ func _create_uniform_set(buf_damage: RID, buf_next: RID, buf_params: RID) -> RID
 	u_next.add_id(buf_next)
 	uniforms.append(u_next)
 	var u_params := RDUniform.new()
-	u_params.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
+	u_params.uniform_type = RenderingDevice.UNIFORM_TYPE_UNIFORM_BUFFER
 	u_params.binding = 2
 	u_params.add_id(buf_params)
 	uniforms.append(u_params)
@@ -399,7 +397,9 @@ func _run_compute_step() -> void:
 	if not _rendering_device.compute_pipeline_is_valid(_compute_pipeline):
 		return
 	# Dispatch: 64x64 grid / 8x8 workgroup = 8x8 groups.
+	@warning_ignore("integer_division")
 	var groups_x: int = _GRID_SIZE / 8
+	@warning_ignore("integer_division")
 	var groups_y: int = _GRID_SIZE / 8
 	var cl: int = _rendering_device.compute_list_begin()
 	_rendering_device.compute_list_bind_compute_pipeline(cl, _compute_pipeline)
@@ -446,7 +446,9 @@ func _cpu_heal_step(delta: float) -> void:
 
 ## Injects damage into the center of the damage map (simulates a hit).
 func _inject_damage_into_map(amount: float) -> void:
+	@warning_ignore("integer_division")
 	var cx: int = _GRID_SIZE / 2
+	@warning_ignore("integer_division")
 	var cy: int = _GRID_SIZE / 2
 	var radius: int = 3
 	var dmg: float = clampf(amount / 50.0, 0.1, 1.0)

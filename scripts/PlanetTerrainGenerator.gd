@@ -433,8 +433,9 @@ func _build_skirt_vertices(positions: PackedVector3Array, normals: PackedVector3
 		nrm_data: PackedByteArray, tan_data: PackedByteArray) -> void:
 	var n: int = _VERTS_PER_CHUNK
 	# Compute skirt depth from the chunk's approximate bounding radius.
-	var center_dir: Vector3 = positions[0].normalized() # approximate
+	var _center_dir: Vector3 = positions[0].normalized() # approximate
 	# Use the average edge vertex distance from origin as bounding radius proxy.
+	@warning_ignore("integer_division")
 	var edge_mid: Vector3 = positions[n / 2] # mid-top edge vertex
 	var skirt_depth: float = maxf(edge_mid.length(), 1.0) * _SKIRT_DEPTH_FRACTION
 	var idx: int = _CHUNK_VERTEX_COUNT
@@ -460,7 +461,7 @@ func _build_skirt_vertices(positions: PackedVector3Array, normals: PackedVector3
 func _write_skirt_vertex(idx: int, grid_idx: int, skirt_depth: float,
 		positions: PackedVector3Array, normals: PackedVector3Array,
 		tangents: PackedFloat32Array, pos_data: PackedByteArray,
-		nrm_data: PackedByteArray, tan_data: PackedByteArray) -> int:
+		_nrm_data: PackedByteArray, tan_data: PackedByteArray) -> int:
 	# Use the raw (pre-origin) position to compute the inward direction.
 	var off: int = grid_idx * _VEC4_BYTES
 	var raw_px: float = pos_data.decode_float(off)
@@ -584,7 +585,7 @@ func _refine_face_quadtree(face: int, lod: int, cx: int, cy: int,
 	var center_pos: Vector3 = center_dir * planet_radius_m
 
 	# --- Culling: is this chunk visible from the camera? ---
-	var is_visible: bool = true
+	var _is_vis: bool = true
 	var frustum_state: int = parent_frustum_state
 	if frustum_culling_enabled and not frustum_planes.is_empty():
 		if parent_frustum_state == _FRUSTUM_INSIDE:
@@ -592,10 +593,10 @@ func _refine_face_quadtree(face: int, lod: int, cx: int, cy: int,
 		else:
 			var chunk_aabb: AABB = _estimate_chunk_aabb(face, lod, cx, cy)
 			frustum_state = _test_frustum(chunk_aabb, frustum_planes)
-		is_visible = frustum_state != _FRUSTUM_OUTSIDE
+		_is_vis = frustum_state != _FRUSTUM_OUTSIDE
 
-	if horizon_culling_enabled and is_visible:
-		is_visible = _is_above_horizon(center_dir, face, lod, cx, cy, player_position)
+	if horizon_culling_enabled and _is_vis:
+		_is_vis = _is_above_horizon(center_dir, face, lod, cx, cy, player_position)
 
 	# --- LOD decision with hysteresis ---
 	var dist: float = player_position.distance_to(center_pos)
@@ -605,13 +606,13 @@ func _refine_face_quadtree(face: int, lod: int, cx: int, cy: int,
 	var merge_threshold: float = split_threshold * _HYSTERESIS_FACTOR
 
 	# Split when close enough and below max LOD (respecting the split budget).
-	if lod < max_lod and dist < split_threshold and is_visible and remaining_splits[0] > 0:
+	if lod < max_lod and dist < split_threshold and _is_vis and remaining_splits[0] > 0:
 		remaining_splits[0] -= 1
 		_refine_face_quadtree(face, lod + 1, cx * 2 + 0, cy * 2 + 0, player_position, frustum_planes, frustum_state, remaining_splits, out)
 		_refine_face_quadtree(face, lod + 1, cx * 2 + 1, cy * 2 + 0, player_position, frustum_planes, frustum_state, remaining_splits, out)
 		_refine_face_quadtree(face, lod + 1, cx * 2 + 0, cy * 2 + 1, player_position, frustum_planes, frustum_state, remaining_splits, out)
 		_refine_face_quadtree(face, lod + 1, cx * 2 + 1, cy * 2 + 1, player_position, frustum_planes, frustum_state, remaining_splits, out)
-	elif lod > 0 and dist > merge_threshold and not is_visible:
+	elif lod > 0 and dist > merge_threshold and not _is_vis:
 		# Chunk is far away and not visible — don't include it (it will be unloaded).
 		pass
 	else:
@@ -657,7 +658,7 @@ func _test_frustum(aabb: AABB, planes: Array[Plane]) -> int:
 ## camera's viewpoint. Uses angular geometry: the camera's horizon angle
 ## (depends on altitude) combined with the chunk's angular extent. Mountains
 ## can peek above the geometric horizon via the terrain_height extension.
-func _is_above_horizon(chunk_dir: Vector3, face: int, lod: int, cx: int, cy: int, camera_pos: Vector3) -> bool:
+func _is_above_horizon(chunk_dir: Vector3, _face: int, lod: int, cx: int, cy: int, camera_pos: Vector3) -> bool:
 	var camera_distance: float = camera_pos.length()
 	# Camera inside the planet — everything is visible.
 	if camera_distance <= planet_radius_m:
@@ -726,15 +727,15 @@ func _update_chunk_visibility(frustum_planes: Array[Plane]) -> void:
 		var handle: ChunkHandle = _chunks[key]
 		if not is_instance_valid(handle.node):
 			continue
-		var visible: bool = true
+		var is_vis: bool = true
 		if frustum_culling_enabled and not frustum_planes.is_empty():
-			visible = _test_frustum(handle.bounding_aabb, frustum_planes) != _FRUSTUM_OUTSIDE
-		if horizon_culling_enabled and visible:
+			is_vis = _test_frustum(handle.bounding_aabb, frustum_planes) != _FRUSTUM_OUTSIDE
+		if horizon_culling_enabled and is_vis:
 			var camera_pos: Vector3 = _origin
-			visible = _is_above_horizon(handle.bounding_center.normalized(),
+			is_vis = _is_above_horizon(handle.bounding_center.normalized(),
 					handle.face_id, handle.lod, handle.chunk_x, handle.chunk_y, camera_pos)
-		handle.is_visible = visible
-		handle.node.visible = visible
+		handle.is_visible = is_vis
+		handle.node.visible = is_vis
 
 # ---------------------------------------------------------------------------
 # CUBE-SPHERE MATH (mirrors the GLSL face_to_cube)

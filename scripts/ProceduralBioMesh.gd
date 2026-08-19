@@ -81,9 +81,6 @@ var mat_interior: ShaderMaterial
 ## damage). Applied to a secondary MeshInstance3D child that shares the ship
 ## mesh so the overlay renders on top without clobbering the primary shaders.
 var mat_regen: ShaderMaterial
-## Lazily-built regen overlay material owned by _setup_regen_overlay (richer
-## parameter set than the basic mat_regen above, which is kept for compatibility).
-var _regen_mat: ShaderMaterial = null
 ## Child MeshInstance3D that renders the regen overlay pass over the ship hull.
 var _regen_overlay: MeshInstance3D = null
 

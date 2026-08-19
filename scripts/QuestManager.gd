@@ -97,7 +97,7 @@ func start_quest(id: String) -> void:
 
 ## Mark a MANUAL objective as completed. The quest_id is used for validation
 ## and signal routing; the objective is completed via its objective_id.
-func complete_objective(quest_id: String, obj_id: String) -> void:
+func complete_objective(_quest_id: String, obj_id: String) -> void:
 	if not _is_ready():
 		push_warning("[QuestManager] complete_objective called before initialization.")
 		return

@@ -146,17 +146,17 @@ func _load_translations() -> void:
 		print("[SettingsSystem] No translations directory found at ", TRANSLATIONS_DIR)
 		return
 	dir.list_dir_begin()
-	var name := dir.get_next()
-	while name != "":
-		if not dir.current_is_dir() and name.get_extension() == "translation":
-			var res_path := TRANSLATIONS_DIR + "/" + name
+	var file_name := dir.get_next()
+	while file_name != "":
+		if not dir.current_is_dir() and file_name.get_extension() == "translation":
+			var res_path := TRANSLATIONS_DIR + "/" + file_name
 			var translation: Translation = load(res_path) as Translation
 			if translation:
 				TranslationServer.add_translation(translation)
 				print("[SettingsSystem] Loaded translation: ", res_path)
 			else:
 				push_warning("[SettingsSystem] Failed to load translation: " + res_path)
-		name = dir.get_next()
+		file_name = dir.get_next()
 
 func load_settings() -> void:
 	_settings = DEFAULTS.duplicate(true)

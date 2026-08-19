@@ -327,11 +327,11 @@ func _register_and_instance_load_objects() -> void:
 		var save_id: int = serialized_reference[0]
 		var script_id: int = serialized_reference[1]
 		var script: Script = scripts[script_id]
-		var reference: RefCounted = script.new()
-		assert(reference)
-		_objects[save_id] = reference
+		var reference_obj: RefCounted = script.new()
+		assert(reference_obj)
+		_objects[save_id] = reference_obj
 		if DPRINT:
-			prints(save_id, reference, script_id, _sfile_script_paths[script_id])
+			prints(save_id, reference_obj, script_id, _sfile_script_paths[script_id])
 
 func _deserialize_load_objects() -> void:
 	if DPRINT:
@@ -339,10 +339,12 @@ func _deserialize_load_objects() -> void:
 	for serialized_node in _sfile_serialized_nodes:
 		_deserialize_object_data(serialized_node, 3)
 		_prog_deserialized += 1
+		@warning_ignore("integer_division")
 		progress = progress_multiplier * _prog_deserialized / _sfile_n_objects
 	for serialized_reference in _sfile_serialized_references:
 		_deserialize_object_data(serialized_reference, 2)
 		_prog_deserialized += 1
+		@warning_ignore("integer_division")
 		progress = progress_multiplier * _prog_deserialized / _sfile_n_objects
 
 func _build_tree() -> void:
@@ -384,22 +386,24 @@ func _serialize_node(node: Node):
 	_serialize_object_data(node, serialized_node)
 	_sfile_serialized_nodes.append(serialized_node)
 	_prog_serialized += 1
+	@warning_ignore("integer_division")
 	progress = progress_multiplier * _prog_serialized / _sfile_n_objects
 
-func _register_and_serialize_reference(reference: RefCounted) -> int:
-	assert(reference.PERSIST_AS_PROCEDURAL_OBJECT) # must be true for References
+func _register_and_serialize_reference(reference_obj: RefCounted) -> int:
+	assert(reference_obj.PERSIST_AS_PROCEDURAL_OBJECT) # must be true for References
 	var save_id := _sfile_n_objects
 	_sfile_n_objects += 1
-	_ids[reference] = save_id
+	_ids[reference_obj] = save_id
 	var serialized_reference := []
 	serialized_reference.append(save_id) # index 0
-	var script_id := _get_or_create_script_id(reference)
+	var script_id := _get_or_create_script_id(reference_obj)
 	if DPRINT:
-		prints(save_id, reference, script_id, _sfile_script_paths[script_id])
+		prints(save_id, reference_obj, script_id, _sfile_script_paths[script_id])
 	serialized_reference.append(script_id) # index 1
-	_serialize_object_data(reference, serialized_reference)
+	_serialize_object_data(reference_obj, serialized_reference)
 	_sfile_serialized_references.append(serialized_reference)
 	_prog_serialized += 1
+	@warning_ignore("integer_division")
 	progress = progress_multiplier * _prog_serialized / _sfile_n_objects
 	return save_id
 
@@ -565,11 +569,11 @@ func _decode_object(test_string: String) -> Object:
 	if test_string.substr(0, _tag_size) != object_tag:
 		return null # it's just a string!
 	if test_string.substr(_tag_size, 1) == "w": # weak ref
-		var save_id := int(test_string.substr(_tag_size + 1, test_string.length() - _tag_size - 1))
-		if save_id == -1: # weak ref to dead object
+		var local_save_id := int(test_string.substr(_tag_size + 1, test_string.length() - _tag_size - 1))
+		if local_save_id == -1: # weak ref to dead object
 			return WeakRef.new() # get_ref() = null
-		var object: Object = _objects[save_id]
-		return weakref(object)
+		var local_object: Object = _objects[local_save_id]
+		return weakref(local_object)
 	var save_id := int(test_string.substr(_tag_size, test_string.length() - _tag_size))
 	var object: Object = _objects[save_id]
 	return object

@@ -318,11 +318,11 @@ func add_discovered_poi_fields(poi_name: String, system: String, poi_type: Strin
 # ===========================================================================
 
 ## Add a planet seed to the persistent list (deduplicated).
-func add_planet_seed(seed: int) -> void:
+func add_planet_seed(seed_value: int) -> void:
 	var seeds_dict: Dictionary = current_save_data.get("procedural_seeds", {})
 	var planet_seeds: Array = seeds_dict.get("planet_seeds", [])
-	if not planet_seeds.has(seed):
-		planet_seeds.append(seed)
+	if not planet_seeds.has(seed_value):
+		planet_seeds.append(seed_value)
 		seeds_dict["planet_seeds"] = planet_seeds
 		current_save_data["procedural_seeds"] = seeds_dict
 
@@ -336,16 +336,16 @@ func get_planet_seeds() -> Array:
 ## Store a planet seed keyed by a stable planet identifier (planet name).
 ## Maintains a name→seed map alongside the flat seed list for fast lookup.
 ## Also appends the raw seed to the flat list so legacy callers keep working.
-func set_planet_seed(planet_id: String, seed: int) -> void:
+func set_planet_seed(planet_id: String, seed_value: int) -> void:
 	if planet_id.is_empty():
 		return
 	var seeds_dict: Dictionary = current_save_data.get("procedural_seeds", {})
 	var seed_map: Dictionary = seeds_dict.get("planet_seed_map", {})
-	seed_map[planet_id] = seed
+	seed_map[planet_id] = seed_value
 	seeds_dict["planet_seed_map"] = seed_map
 	current_save_data["procedural_seeds"] = seeds_dict
 	# Keep the flat list in sync for backwards-compatible callers.
-	add_planet_seed(seed)
+	add_planet_seed(seed_value)
 
 
 ## Retrieve a planet seed by its stable planet identifier.

@@ -50,12 +50,21 @@ const _BIOAUDIO_VOICE_PROPS: Array[String] = [
 ]
 
 # Cached subsystem references (re-resolved when invalidated).
+# Accessed dynamically via get()/set() in _resolve_cached(), so the static
+# analyzer reports them as unused — suppress with @warning_ignore.
+@warning_ignore("unused_private_class_variable")
 var _api: Node = null
+@warning_ignore("unused_private_class_variable")
 var _bioaudio: Node = null
+@warning_ignore("unused_private_class_variable")
 var _organ: Node = null
+@warning_ignore("unused_private_class_variable")
 var _save: Node = null
+@warning_ignore("unused_private_class_variable")
 var _combat: Node = null
+@warning_ignore("unused_private_class_variable")
 var _flight: Node = null
+@warning_ignore("unused_private_class_variable")
 var _terrain: Node = null
 
 

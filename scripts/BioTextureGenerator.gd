@@ -51,12 +51,12 @@ static var _default_size: int = DEFAULT_TEXTURE_SIZE
 ## emission map: bioluminescent veins/spots are encoded bright so that when
 ## bound to the emission sampler they glow, while the dark organic base tints
 ## the albedo blend without over-emitting.
-static func generate_hull_texture(seed: int, damage_level: float = 0.0, size: int = -1) -> ImageTexture:
+static func generate_hull_texture(seed_value: int, damage_level: float = 0.0, size: int = -1) -> ImageTexture:
 	var sz := _resolve_size(size)
-	var key := "hull:%d:%.4f:%d" % [seed, clampf(damage_level, 0.0, 1.0), sz]
+	var key := "hull:%d:%.4f:%d" % [seed_value, clampf(damage_level, 0.0, 1.0), sz]
 	if _cache.has(key):
 		return _cache[key]
-	var img := _build_hull_image(seed, clampf(damage_level, 0.0, 1.0), sz)
+	var img := _build_hull_image(seed_value, clampf(damage_level, 0.0, 1.0), sz)
 	var tex := ImageTexture.create_from_image(img)
 	_cache[key] = tex
 	return tex
@@ -66,12 +66,12 @@ static func generate_hull_texture(seed: int, damage_level: float = 0.0, size: in
 ## (see PLANET_* constants). Produces a color/albedo map tailored to the
 ## celestial body type (molten lava cracks, barren regolith, oceanic landmass,
 ## ice fissures, gas-giant bands, radiotrophic bio-veins, etc.).
-static func generate_planet_texture(archetype: int, seed: int, size: int = -1) -> ImageTexture:
+static func generate_planet_texture(archetype: int, seed_value: int, size: int = -1) -> ImageTexture:
 	var sz := _resolve_size(size)
-	var key := "planet:%d:%d:%d" % [archetype, seed, sz]
+	var key := "planet:%d:%d:%d" % [archetype, seed_value, sz]
 	if _cache.has(key):
 		return _cache[key]
-	var img := _build_planet_image(archetype, seed, sz)
+	var img := _build_planet_image(archetype, seed_value, sz)
 	var tex := ImageTexture.create_from_image(img)
 	_cache[key] = tex
 	return tex
@@ -80,12 +80,12 @@ static func generate_planet_texture(archetype: int, seed: int, size: int = -1) -
 ## Generates an asteroid surface texture (rocky / metallic / crystalline) for
 ## the given asteroid type index (see ASTEROID_* constants). Produces an albedo
 ## map with mineral variation, regolith grain, and bio-crystal veins.
-static func generate_asteroid_texture(type: int, seed: int, size: int = -1) -> ImageTexture:
+static func generate_asteroid_texture(type: int, seed_value: int, size: int = -1) -> ImageTexture:
 	var sz := _resolve_size(size)
-	var key := "asteroid:%d:%d:%d" % [type, seed, sz]
+	var key := "asteroid:%d:%d:%d" % [type, seed_value, sz]
 	if _cache.has(key):
 		return _cache[key]
-	var img := _build_asteroid_image(type, seed, sz)
+	var img := _build_asteroid_image(type, seed_value, sz)
 	var tex := ImageTexture.create_from_image(img)
 	_cache[key] = tex
 	return tex
@@ -98,19 +98,19 @@ static func clear_cache() -> void:
 
 
 ## Clears a single cached entry by its logical key components.
-static func clear_cached_hull(seed: int, damage_level: float = 0.0, size: int = -1) -> void:
+static func clear_cached_hull(seed_value: int, damage_level: float = 0.0, size: int = -1) -> void:
 	var sz := _resolve_size(size)
-	_cache.erase("hull:%d:%.4f:%d" % [seed, clampf(damage_level, 0.0, 1.0), sz])
+	_cache.erase("hull:%d:%.4f:%d" % [seed_value, clampf(damage_level, 0.0, 1.0), sz])
 
 
-static func clear_cached_planet(archetype: int, seed: int, size: int = -1) -> void:
+static func clear_cached_planet(archetype: int, seed_value: int, size: int = -1) -> void:
 	var sz := _resolve_size(size)
-	_cache.erase("planet:%d:%d:%d" % [archetype, seed, sz])
+	_cache.erase("planet:%d:%d:%d" % [archetype, seed_value, sz])
 
 
-static func clear_cached_asteroid(type: int, seed: int, size: int = -1) -> void:
+static func clear_cached_asteroid(type: int, seed_value: int, size: int = -1) -> void:
 	var sz := _resolve_size(size)
-	_cache.erase("asteroid:%d:%d:%d" % [type, seed, sz])
+	_cache.erase("asteroid:%d:%d:%d" % [type, seed_value, sz])
 
 
 ## Sets the default texture resolution for subsequent generations.
@@ -136,21 +136,24 @@ static func _resolve_size(size: int) -> int:
 	return size if size > 0 else _default_size
 
 
-static func _make_noise(seed: int, type: int, freq: float, octaves: int = 4, fractal: int = FastNoiseLite.FRACTAL_FBM) -> FastNoiseLite:
+static func _make_noise(seed_value: int, type: int, freq: float, octaves: int = 4, fractal: int = FastNoiseLite.FRACTAL_FBM) -> FastNoiseLite:
 	var n := FastNoiseLite.new()
-	n.seed = seed
+	n.seed = seed_value
+	@warning_ignore("int_as_enum_without_cast")
 	n.noise_type = type
 	n.frequency = freq
+	@warning_ignore("int_as_enum_without_cast")
 	n.fractal_type = fractal
 	n.fractal_octaves = octaves
 	return n
 
 
-static func _make_cellular(seed: int, freq: float, return_type: int = FastNoiseLite.RETURN_DISTANCE) -> FastNoiseLite:
+static func _make_cellular(seed_value: int, freq: float, return_type: int = FastNoiseLite.RETURN_DISTANCE) -> FastNoiseLite:
 	var n := FastNoiseLite.new()
-	n.seed = seed
+	n.seed = seed_value
 	n.noise_type = FastNoiseLite.TYPE_CELLULAR
 	n.cellular_distance_function = FastNoiseLite.DISTANCE_EUCLIDEAN
+	@warning_ignore("int_as_enum_without_cast")
 	n.cellular_return_type = return_type
 	n.frequency = freq
 	return n
@@ -160,14 +163,14 @@ static func _make_cellular(seed: int, freq: float, return_type: int = FastNoiseL
 # HULL TEXTURE
 # -----------------------------------------------------------------------------
 
-static func _build_hull_image(seed: int, damage_level: float, sz: int) -> Image:
+static func _build_hull_image(seed_value: int, damage_level: float, sz: int) -> Image:
 	var img := Image.create_empty(sz, sz, false, Image.FORMAT_RGBA8)
 
-	var n_base := _make_noise(seed, FastNoiseLite.TYPE_SIMPLEX_SMOOTH, 0.008, 5)
-	var n_plates := _make_cellular(seed ^ 0x5A5A, 0.045, FastNoiseLite.RETURN_DISTANCE)
-	var n_veins := _make_noise(seed ^ 0xA5A5, FastNoiseLite.TYPE_SIMPLEX, 0.018, 4, FastNoiseLite.FRACTAL_RIDGED)
-	var n_spots := _make_cellular(seed ^ 0x1234, 0.09, FastNoiseLite.RETURN_CELL_VALUE)
-	var n_damage := _make_noise(seed ^ 0xDEAD, FastNoiseLite.TYPE_SIMPLEX, 0.06, 3, FastNoiseLite.FRACTAL_RIDGED)
+	var n_base := _make_noise(seed_value, FastNoiseLite.TYPE_SIMPLEX_SMOOTH, 0.008, 5)
+	var n_plates := _make_cellular(seed_value ^ 0x5A5A, 0.045, FastNoiseLite.RETURN_DISTANCE)
+	var n_veins := _make_noise(seed_value ^ 0xA5A5, FastNoiseLite.TYPE_SIMPLEX, 0.018, 4, FastNoiseLite.FRACTAL_RIDGED)
+	var n_spots := _make_cellular(seed_value ^ 0x1234, 0.09, FastNoiseLite.RETURN_CELL_VALUE)
+	var n_damage := _make_noise(seed_value ^ 0xDEAD, FastNoiseLite.TYPE_SIMPLEX, 0.06, 3, FastNoiseLite.FRACTAL_RIDGED)
 
 	var bio_color := Color(0.0, 0.95, 0.85, 1.0)        # bioluminescent cyan-green
 	var bio_hot := Color(0.45, 1.0, 0.9, 1.0)           # brighter vein core
@@ -221,14 +224,14 @@ static func _build_hull_image(seed: int, damage_level: float, sz: int) -> Image:
 # PLANET TEXTURE
 # -----------------------------------------------------------------------------
 
-static func _build_planet_image(archetype: int, seed: int, sz: int) -> Image:
+static func _build_planet_image(archetype: int, seed_value: int, sz: int) -> Image:
 	var img := Image.create_empty(sz, sz, false, Image.FORMAT_RGBA8)
 
-	var n_base := _make_noise(seed, FastNoiseLite.TYPE_SIMPLEX_SMOOTH, 0.006, 5)
-	var n_detail := _make_noise(seed ^ 0x7777, FastNoiseLite.TYPE_SIMPLEX, 0.03, 4)
-	var n_bands := _make_noise(seed ^ 0xBEEF, FastNoiseLite.TYPE_SIMPLEX_SMOOTH, 0.004, 3)
-	var n_cracks := _make_noise(seed ^ 0xC0DE, FastNoiseLite.TYPE_SIMPLEX, 0.02, 4, FastNoiseLite.FRACTAL_RIDGED)
-	var n_veins := _make_cellular(seed ^ 0x9999, 0.05, FastNoiseLite.RETURN_CELL_VALUE)
+	var n_base := _make_noise(seed_value, FastNoiseLite.TYPE_SIMPLEX_SMOOTH, 0.006, 5)
+	var n_detail := _make_noise(seed_value ^ 0x7777, FastNoiseLite.TYPE_SIMPLEX, 0.03, 4)
+	var n_bands := _make_noise(seed_value ^ 0xBEEF, FastNoiseLite.TYPE_SIMPLEX_SMOOTH, 0.004, 3)
+	var n_cracks := _make_noise(seed_value ^ 0xC0DE, FastNoiseLite.TYPE_SIMPLEX, 0.02, 4, FastNoiseLite.FRACTAL_RIDGED)
+	var n_veins := _make_cellular(seed_value ^ 0x9999, 0.05, FastNoiseLite.RETURN_CELL_VALUE)
 
 	# Palette per archetype
 	var col_low := Color(0.05, 0.05, 0.08, 1.0)
@@ -313,13 +316,13 @@ static func _build_planet_image(archetype: int, seed: int, sz: int) -> Image:
 # ASTEROID TEXTURE
 # -----------------------------------------------------------------------------
 
-static func _build_asteroid_image(type: int, seed: int, sz: int) -> Image:
+static func _build_asteroid_image(type: int, seed_value: int, sz: int) -> Image:
 	var img := Image.create_empty(sz, sz, false, Image.FORMAT_RGBA8)
 
-	var n_base := _make_noise(seed, FastNoiseLite.TYPE_SIMPLEX_SMOOTH, 0.01, 5)
-	var n_grain := _make_noise(seed ^ 0x4242, FastNoiseLite.TYPE_SIMPLEX, 0.06, 3)
-	var n_veins := _make_noise(seed ^ 0x8BAD, FastNoiseLite.TYPE_SIMPLEX, 0.025, 4, FastNoiseLite.FRACTAL_RIDGED)
-	var n_craters := _make_cellular(seed ^ 0xF00D, 0.04, FastNoiseLite.RETURN_DISTANCE)
+	var n_base := _make_noise(seed_value, FastNoiseLite.TYPE_SIMPLEX_SMOOTH, 0.01, 5)
+	var n_grain := _make_noise(seed_value ^ 0x4242, FastNoiseLite.TYPE_SIMPLEX, 0.06, 3)
+	var n_veins := _make_noise(seed_value ^ 0x8BAD, FastNoiseLite.TYPE_SIMPLEX, 0.025, 4, FastNoiseLite.FRACTAL_RIDGED)
+	var n_craters := _make_cellular(seed_value ^ 0xF00D, 0.04, FastNoiseLite.RETURN_DISTANCE)
 
 	# Palette per asteroid type
 	var col_low := Color(0.05, 0.05, 0.06, 1.0)

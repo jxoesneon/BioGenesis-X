@@ -157,7 +157,7 @@ func on_dialogue_complete(result: Dictionary) -> void:
 # ============================================================================
 
 ## When an objective completes, persist covenant progress.
-func _on_objective_completed(quest_id: String, objective_id: String) -> void:
+func _on_objective_completed(quest_id: String, _objective_id: String) -> void:
 	if quest_id != QUEST_ID:
 		return
 	_save_covenant_state()
@@ -183,7 +183,7 @@ func _on_choice_made(key: String) -> void:
 # ============================================================================
 
 ## When the player first engages boost/thrust, complete the first-flight obj.
-func _on_player_boost(is_boosting: bool) -> void:
+func _on_player_boost(_is_boosting: bool) -> void:
 	if not _flight_objective_pending:
 		return
 	# Any boost engagement counts as taking flight for the intro beat.
