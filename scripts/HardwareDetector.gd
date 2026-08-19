@@ -372,11 +372,9 @@ func _process(delta: float) -> void:
 			_current_resolution_scale * 100.0, avg_ms])
 
 func _apply_resolution_scale() -> void:
-	# Use Godot's content scale factor for UI resolution scaling
-	var tree: SceneTree = get_tree()
-	if tree and tree.root:
-		tree.root.content_scale_factor = _current_resolution_scale
-	# Also set the 3D render scale on the viewport for render resolution scaling
+	# Adaptive quality only affects 3D render resolution, NOT the UI scale.
+	# The UI content_scale_factor is controlled exclusively by SettingsSystem
+	# (_apply_ui_scale) and must remain static regardless of adaptive quality.
 	var vp := get_viewport()
 	if vp:
 		vp.scaling_3d_scale = _current_resolution_scale
