@@ -397,8 +397,8 @@ func _spawn_warp_tunnel() -> void:
 	cyl.height = 800.0
 	cyl.top_radius = 25.0
 	cyl.bottom_radius = 25.0
-	cyl.radial_segments = 64
-	cyl.rings = 64
+	cyl.radial_segments = 32
+	cyl.rings = 32
 	cyl.cap_top = false
 	cyl.cap_bottom = false
 	warp_tunnel_mesh.mesh = cyl
@@ -421,7 +421,7 @@ func _spawn_warp_tunnel() -> void:
 		
 		# Add high-speed star streak particles
 		jump_particles = GPUParticles3D.new()
-		jump_particles.amount = 300
+		jump_particles.amount = 150
 		jump_particles.lifetime = 1.0
 		jump_particles.randomness = 0.5
 		jump_particles.visibility_aabb = AABB(Vector3(-100, -100, -400), Vector3(200, 200, 800))
@@ -465,8 +465,8 @@ func _spawn_spool_grid() -> void:
 	spool_grid_mesh = MeshInstance3D.new()
 	var plane := PlaneMesh.new()
 	plane.size = Vector2(800.0, 800.0)
-	plane.subdivide_width = 128
-	plane.subdivide_depth = 128
+	plane.subdivide_width = 48
+	plane.subdivide_depth = 48
 	spool_grid_mesh.mesh = plane
 	
 	# Rotate so +Y points forward, local XZ is parallel to screen

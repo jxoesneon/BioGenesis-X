@@ -24,8 +24,8 @@ func _ready() -> void:
 	# Build the warp plane mesh (lies flat in XZ, will be positioned below ship)
 	_plane_mesh = PlaneMesh.new()
 	_plane_mesh.size = Vector2(60.0, 60.0)
-	_plane_mesh.subdivide_width = 80
-	_plane_mesh.subdivide_depth = 80
+	_plane_mesh.subdivide_width = 32
+	_plane_mesh.subdivide_depth = 32
 	# Orient plane so it lies horizontally beneath/around the ship
 	# PlaneMesh default is in XZ plane facing +Y, which is what we want
 
@@ -62,8 +62,8 @@ func _ready() -> void:
 		disc.top_radius = 14.0
 		disc.bottom_radius = 14.0
 		disc.height = 0.2
-		disc.radial_segments = 96
-		disc.rings = 8
+		disc.radial_segments = 48
+		disc.rings = 4
 		_vortex_mesh.mesh = disc
 		_vortex_mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		_vortex_mat = ShaderMaterial.new()

@@ -490,7 +490,11 @@ func _physics_process(delta: float) -> void:
 	_calculate_g_forces(delta)
 	_update_camera_effects(delta)
 	_sync_organ_telemetry(delta)
-	_update_planet_proximity_audio()
+	# Skip planet proximity audio scan during wave engine — at relativistic
+	# speeds the scan is wasteful (ship passes planets in milliseconds) and
+	# the proximity soundscape is irrelevant during warp.
+	if wave_state != WaveState.ENGAGED:
+		_update_planet_proximity_audio()
 	# Decay damage flash timer
 	damage_flash_timer = maxf(0.0, damage_flash_timer - delta * 1.2)
 
@@ -1191,6 +1195,15 @@ func _handle_bio_boost(delta: float) -> void:
 
 ## Applies velocity to body as a single unified physical object.
 func _integrate_movement(_delta: float) -> void:
+	if wave_state == WaveState.ENGAGED:
+		# Wave Engine: bypass move_and_slide() — at relativistic speeds
+		# (wave_max_speed = 200M km/s), physics collision sweeping is
+		# catastrophically expensive. The Alcubierre warp doesn't use
+		# normal collision detection; directly translate position.
+		if is_inside_tree():
+			global_position += linear_velocity_vector * _delta
+		_apply_floating_origin()
+		return
 	velocity = linear_velocity_vector
 	if is_inside_tree():
 		move_and_slide()
@@ -1205,6 +1218,8 @@ func _integrate_movement(_delta: float) -> void:
 ## the ship near the world origin where float32 precision is highest (~0.01m).
 ## At 1 AU (149.6M km) without floating origin, precision would be ~16km.
 const _FLOATING_ORIGIN_THRESHOLD_M: float = 50000.0 ## 50km from origin triggers shift
+var _floating_origin_bodies: Array[Node3D] = []
+var _floating_origin_populated: bool = false
 func _apply_floating_origin() -> void:
 	if not is_inside_tree():
 		return
@@ -1216,15 +1231,23 @@ func _apply_floating_origin() -> void:
 	var shift: Vector3 = -ship_pos
 	# Move the ship to near-origin.
 	global_position = Vector3.ZERO
-	# Shift all celestial bodies (planets, moons, star) in the scene.
+	# Cache celestial bodies on first use to avoid get_nodes_in_group() every frame.
+	if not _floating_origin_populated:
+		var tree: SceneTree = get_tree()
+		if tree == null or tree.root == null:
+			return
+		for body: Node in tree.get_nodes_in_group("celestial_bodies"):
+			if body is Node3D:
+				_floating_origin_bodies.append(body as Node3D)
+		_floating_origin_populated = true
+	# Shift all cached celestial bodies.
+	for body: Node3D in _floating_origin_bodies:
+		if is_instance_valid(body):
+			body.global_position += shift
+	# Shift the UniverseManager if it has a global position.
 	var tree: SceneTree = get_tree()
 	if tree == null or tree.root == null:
 		return
-	# Shift planets in the "celestial_bodies" group.
-	for body: Node in tree.get_nodes_in_group("celestial_bodies"):
-		if body is Node3D:
-			(body as Node3D).global_position += shift
-	# Shift the UniverseManager if it has a global position.
 	var universe: Node = tree.root.get_node_or_null("SpaceFlight/UniverseManager")
 	if universe != null and universe is Node3D:
 		(universe as Node3D).global_position += shift
@@ -1471,7 +1494,15 @@ func _update_camera_effects(delta: float) -> void:
 		camera_shake_intensity = move_toward(camera_shake_intensity, 0.0, delta * camera_shake_decay)
 
 ## Interacts with OrganTelemetry.gd to affect pilot biometrics during G-force shifts.
+var _organ_telemetry_accum: float = 0.0
 func _sync_organ_telemetry(delta: float) -> void:
+	# Throttle to 10Hz during wave engine — biometric updates are not
+	# perceptible at warp speeds and the call overhead adds up.
+	if wave_state == WaveState.ENGAGED:
+		_organ_telemetry_accum += delta
+		if _organ_telemetry_accum < 0.1:
+			return
+		_organ_telemetry_accum = 0.0
 	if not organ_telemetry_node:
 		_find_organ_telemetry()
 		if not organ_telemetry_node:
