@@ -406,6 +406,9 @@ func _input(event: InputEvent) -> void:
 	# Target cycling (Tab): cycle through available combat targets. When targets
 	# exist we consume the event so it does not also trigger the organ inspector
 	# in _unhandled_input; with no targets present we let it fall through.
+	# Skip processing when a dialogue is active — TAB is used to skip dialogue.
+	if _is_dialogue_active():
+		return
 	if event is InputEventKey and event.pressed and not event.echo:
 		if event.is_action_pressed("ui_scanner_toggle"):
 			_refresh_target_list_cache()
@@ -800,12 +803,27 @@ func _change_scene(path: String) -> void:
 			ml.call("change_scene_to_file", path)
 
 func _unhandled_input(event: InputEvent) -> void:
+	# Skip HUD hotkeys when a dialogue is active — TAB is used to skip dialogue.
+	if _is_dialogue_active():
+		return
 	if event is InputEventKey and event.pressed and not event.echo:
 		if event.is_action_pressed("ui_scanner_toggle"):
 			inspect_organs_requested.emit()
 			_change_scene("res://scenes/organ_inspector.tscn")
 		elif event.is_action_pressed("ui_galaxymap_toggle"):
 			_toggle_galaxy_map()
+
+## Returns true if a DialogueUI is currently active (conversation in progress).
+## Used to suppress HUD hotkeys (TAB, M) so they don't conflict with dialogue
+## controls (TAB = skip dialogue, SPACE = advance).
+func _is_dialogue_active() -> bool:
+	var ml := Engine.get_main_loop()
+	if ml is SceneTree and ml.root:
+		for child in ml.root.get_children():
+			if child is DialogueUI and child.is_active():
+				return true
+	return false
+
 
 func _toggle_galaxy_map() -> void:
 	if galaxy_map_instance and is_instance_valid(galaxy_map_instance):
