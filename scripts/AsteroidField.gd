@@ -436,17 +436,38 @@ func _spawn_target_drones() -> void:
 		drone.add_to_group("targets")
 		drone.add_to_group("void_fauna")
 
-		# Mesh representation (Bioluminescent void creature / drone)
+		# Assign drone class — distribute variety across the field
+		# First few are scouts, middle are hunters, last are sentinel/swarmer
+		var drone_class: int = 0
+		if i < drone_count * 0.4:
+			drone_class = 0  # SCOUT
+		elif i < drone_count * 0.7:
+			drone_class = 1  # HUNTER
+		elif i < drone_count * 0.9:
+			drone_class = 3  # SWARMER
+		else:
+			drone_class = 2  # SENTINEL
+		drone.set("drone_class", drone_class)
+
+		# Mesh representation — size and color vary by class
 		var mesh_inst: MeshInstance3D = MeshInstance3D.new()
 		mesh_inst.name = "MeshInstance3D"
 		var prism: PrismMesh = PrismMesh.new()
-		prism.size = Vector3(1.5, 1.5, 3.0)
+		match drone_class:
+			2: prism.size = Vector3(2.5, 2.5, 4.0)  # SENTINEL
+			3: prism.size = Vector3(0.8, 0.8, 1.5)  # SWARMER
+			1: prism.size = Vector3(1.8, 1.8, 3.5)  # HUNTER
+			_: prism.size = Vector3(1.5, 1.5, 3.0)  # SCOUT
 		mesh_inst.mesh = prism
 
 		var mat: StandardMaterial3D = StandardMaterial3D.new()
-		mat.albedo_color = Color(0.9, 0.2, 0.5) # Glowing bio-magenta
+		match drone_class:
+			0: mat.albedo_color = Color(0.3, 0.8, 0.5)  # SCOUT - green
+			1: mat.albedo_color = Color(0.9, 0.2, 0.2)  # HUNTER - red
+			2: mat.albedo_color = Color(0.9, 0.5, 0.1)  # SENTINEL - orange
+			3: mat.albedo_color = Color(0.7, 0.1, 0.9)  # SWARMER - purple
 		mat.emission_enabled = true
-		mat.emission = Color(0.8, 0.1, 0.4)
+		mat.emission = mat.albedo_color
 		mat.emission_energy_multiplier = 2.0
 		mesh_inst.material_override = mat
 		drone.add_child(mesh_inst)
@@ -454,7 +475,7 @@ func _spawn_target_drones() -> void:
 		# Collision shape
 		var col: CollisionShape3D = CollisionShape3D.new()
 		var box: BoxShape3D = BoxShape3D.new()
-		box.size = Vector3(1.5, 1.5, 3.0)
+		box.size = prism.size
 		col.shape = box
 		drone.add_child(col)
 

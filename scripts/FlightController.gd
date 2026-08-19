@@ -921,8 +921,44 @@ func take_damage(amount: float) -> void:
 		audio.trigger_damage(clampf(amount / 50.0, 0.0, 1.0))
 
 	# Death check
-	if hull_integrity <= 0.0:
+	if hull_integrity <= 0.0 and not _is_dead:
+		_is_dead = true
 		ship_destroyed.emit()
+		_on_ship_death()
+
+var _is_dead: bool = false
+
+func _on_ship_death() -> void:
+	# Spawn explosion at ship position
+	CombatVFX.spawn_explosion(global_position, Color(0.0, 1.0, 0.75, 1.0), 2.0)
+	# Big camera shake
+	camera_shake_intensity = 5.0
+	# Audio
+	var ml := Engine.get_main_loop()
+	if ml is SceneTree and ml.root and ml.root.has_node("BioAudioSynth"):
+		var audio = ml.root.get_node("BioAudioSynth")
+		audio.trigger_damage(1.0)
+		audio.play_shield_impact()
+	# Disable controls
+	mouse_control_enabled = false
+	# Respawn after 3 seconds
+	if is_inside_tree() and get_tree():
+		await get_tree().create_timer(3.0).timeout
+		_respawn()
+
+func _respawn() -> void:
+	_is_dead = false
+	hull_integrity = 100.0
+	bio_shield = bio_shield_max
+	bio_plasma_fuel = max_bio_plasma_fuel
+	damage_flash_timer = 0.0
+	camera_shake_intensity = 0.0
+	mouse_control_enabled = true
+	# Reset velocity
+	linear_velocity_vector = Vector3.ZERO
+	angular_velocity_vector = Vector3.ZERO
+	# Move to a safe position (near world origin)
+	global_position = Vector3.ZERO
 
 ## Bio-hydro pulse dampening counteracts Newtonian drifting when dampening is enabled.
 func _handle_dampening(delta: float) -> void:
