@@ -534,6 +534,10 @@ func _input(event: InputEvent) -> void:
 
 	if event is InputEventMouseButton and event.pressed:
 		if Input.mouse_mode != Input.MOUSE_MODE_CAPTURED and not Engine.is_editor_hint():
+			# Don't recapture the mouse when the game is paused (pause menu open).
+			var tree: SceneTree = get_tree()
+			if tree and tree.paused:
+				return
 			Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	
 	if event is InputEventKey and not event.echo and event.pressed:
