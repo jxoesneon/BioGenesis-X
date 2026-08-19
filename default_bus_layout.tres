@@ -1,0 +1,100 @@
+[gd_resource type="AudioBusLayout" format=3 uid="uid://cso4syp7360gj"]
+
+[sub_resource type="AudioEffectLimiter" id="AudioEffectLimiter_master"]
+resource_name = "Limiter"
+ceiling_db = -0.5
+threshold_db = -1.5
+
+[sub_resource type="AudioEffectCompressor" id="AudioEffectCompressor_music"]
+resource_name = "SidechainCompressor"
+threshold = -16.0
+
+[sub_resource type="AudioEffectEQ10" id="AudioEffectEQ10_telemetry"]
+resource_name = "EQTelemetry"
+band_db/31_hz = -12.0
+band_db/62_hz = -6.0
+band_db/125_hz = -2.0
+band_db/500_hz = 1.5
+band_db/1000_hz = 3.0
+band_db/2000_hz = 3.5
+band_db/4000_hz = 2.0
+band_db/16000_hz = -4.0
+
+[sub_resource type="AudioEffectLowPassFilter" id="AudioEffectLowPassFilter_sub"]
+resource_name = "LowPassSub"
+cutoff_hz = 90.0
+resonance = 0.4
+
+[sub_resource type="AudioEffectReverb" id="AudioEffectReverb_space"]
+resource_name = "ReverbSpace"
+room_size = 0.85
+damping = 0.4
+spread = 0.9
+hipass = 0.15
+dry = 0.0
+wet = 1.0
+
+[sub_resource type="AudioEffectReverb" id="AudioEffectReverb_cockpit"]
+resource_name = "ReverbCockpit"
+room_size = 0.35
+damping = 0.7
+spread = 0.6
+hipass = 0.25
+dry = 0.0
+wet = 1.0
+
+[resource]
+bus/0/effect/0/effect = SubResource("AudioEffectLimiter_master")
+bus/0/effect/0/enabled = true
+bus/1/name = &"Music"
+bus/1/solo = false
+bus/1/mute = false
+bus/1/bypass_fx = false
+bus/1/volume_db = -3.0
+bus/1/send = &"Master"
+bus/1/effect/0/effect = SubResource("AudioEffectCompressor_music")
+bus/1/effect/0/enabled = true
+bus/2/name = &"SFX_Player"
+bus/2/solo = false
+bus/2/mute = false
+bus/2/bypass_fx = false
+bus/2/volume_db = 0.0
+bus/2/send = &"Master"
+bus/3/name = &"SFX_World"
+bus/3/solo = false
+bus/3/mute = false
+bus/3/bypass_fx = false
+bus/3/volume_db = -1.5
+bus/3/send = &"Master"
+bus/4/name = &"Telemetry_Voice"
+bus/4/solo = false
+bus/4/mute = false
+bus/4/bypass_fx = false
+bus/4/volume_db = 0.5
+bus/4/send = &"Master"
+bus/4/effect/0/effect = SubResource("AudioEffectEQ10_telemetry")
+bus/4/effect/0/enabled = true
+bus/5/name = &"Bio_Sub"
+bus/5/solo = false
+bus/5/mute = false
+bus/5/bypass_fx = false
+bus/5/volume_db = 1.0
+bus/5/send = &"Master"
+bus/5/effect/0/effect = SubResource("AudioEffectLowPassFilter_sub")
+bus/5/effect/0/enabled = true
+bus/6/name = &"Reverb_Space"
+bus/6/solo = false
+bus/6/mute = false
+bus/6/bypass_fx = false
+bus/6/volume_db = -6.0
+bus/6/send = &"Master"
+bus/6/effect/0/effect = SubResource("AudioEffectReverb_space")
+bus/6/effect/0/enabled = true
+bus/7/name = &"Reverb_Cockpit"
+bus/7/solo = false
+bus/7/mute = false
+bus/7/bypass_fx = false
+bus/7/volume_db = -8.0
+bus/7/send = &"Master"
+bus/7/effect/0/effect = SubResource("AudioEffectReverb_cockpit")
+bus/7/effect/0/enabled = true

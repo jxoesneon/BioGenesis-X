@@ -1,0 +1,30 @@
+# Godot 4 import cache and build artifacts
+.godot/
+
+# macOS
+.DS_Store
+.DS_Store?
+
+# Ciel local domain (orchestration state, not source)
+.ciel/
+
+# Claude Code local settings
+.claude/
+
+# FastEmbed model cache
+.fastembed_cache/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Editor/user settings
+*.local.json
+
+# Screenshots (generated during testing)
+screenshots/
+
+# OS thumbnails
+Thumbs.db
+ehthumbs.db
