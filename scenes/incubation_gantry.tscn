@@ -1,0 +1,74 @@
+[gd_scene load_steps=9 format=3]
+
+[ext_resource type="Shader" path="res://shaders/amniotic_conduit.gdshader" id="1_conduitshader"]
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_gantry_metal"]
+albedo_color = Color(0.09, 0.11, 0.14, 1)
+metallic = 0.95
+roughness = 0.28
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_conduit"]
+shader = ExtResource("1_conduitshader")
+shader_parameter/conduit_base_color = Color(0.04, 0.07, 0.1, 1)
+shader_parameter/fluid_glow_color = Color(0.0, 0.9, 0.75, 1)
+shader_parameter/pulse_speed = 2.0
+shader_parameter/pulse_frequency = 3.0
+shader_parameter/emission_strength = 2.2
+shader_parameter/metallic_val = 0.85
+shader_parameter/roughness_val = 0.2
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_resonator"]
+albedo_color = Color(0.05, 0.2, 0.25, 1)
+metallic = 0.3
+roughness = 0.1
+emission_enabled = true
+emission = Color(0.0, 0.85, 0.95, 1)
+emission_energy_multiplier = 2.5
+
+[sub_resource type="BoxMesh" id="BoxMesh_base"]
+material = SubResource("StandardMaterial3D_gantry_metal")
+size = Vector3(3.2, 1.2, 3.2)
+
+[sub_resource type="BoxMesh" id="BoxMesh_tower"]
+material = SubResource("StandardMaterial3D_gantry_metal")
+size = Vector3(1.6, 12.0, 1.6)
+
+[sub_resource type="CylinderMesh" id="CylinderMesh_conduit"]
+material = SubResource("ShaderMaterial_conduit")
+top_radius = 0.25
+bottom_radius = 0.25
+height = 11.8
+radial_segments = 16
+
+[sub_resource type="BoxMesh" id="BoxMesh_clamp_arm"]
+material = SubResource("StandardMaterial3D_gantry_metal")
+size = Vector3(0.7, 0.6, 4.2)
+
+[sub_resource type="SphereMesh" id="SphereMesh_resonator"]
+material = SubResource("StandardMaterial3D_resonator")
+radius = 0.55
+height = 1.1
+radial_segments = 24
+rings = 12
+
+[node name="IncubationGantry" type="Node3D"]
+
+[node name="Base" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.6, 0)
+mesh = SubResource("BoxMesh_base")
+
+[node name="Tower" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 6.0, 0)
+mesh = SubResource("BoxMesh_tower")
+
+[node name="AmnioticConduit" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 6.0, 0.95)
+mesh = SubResource("CylinderMesh_conduit")
+
+[node name="UmbilicalClampArm" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0.965926, 0.258819, 0, -0.258819, 0.965926, 0, 10.5, 2.0)
+mesh = SubResource("BoxMesh_clamp_arm")
+
+[node name="NeuroResonatorNode" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 12.5, 0.3)
+mesh = SubResource("SphereMesh_resonator")
