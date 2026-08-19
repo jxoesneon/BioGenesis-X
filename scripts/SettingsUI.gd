@@ -382,10 +382,11 @@ func _populate_controls_section() -> void:
 	reset_row.add_child(reset_btn)
 
 	# Build a binding row for every action in every context
-	if KeymapManager:
-		for ctx in KeymapManager.get_contexts():
-			_add_section_header(vbox, KeymapManager.get_context_label(ctx))
-			var actions := KeymapManager.get_actions_in_context(ctx)
+	var km: Node = _get_keymap_manager()
+	if km:
+		for ctx in km.get_contexts():
+			_add_section_header(vbox, km.get_context_label(ctx))
+			var actions: Array = km.get_actions_in_context(ctx)
 			for entry in actions:
 				_add_keybinding_row(vbox, entry.action, entry.label, entry.events, ctx)
 
@@ -417,13 +418,14 @@ func _add_keybinding_row(parent: VBoxContainer, action: String, label_text: Stri
 	row.add_child(label)
 
 	# Create a button for each binding (up to 3 shown)
+	var km: Node = _get_keymap_manager()
 	var buttons: Array[Button] = []
 	for i in range(mini(events.size(), 3)):
 		var btn := Button.new()
 		btn.custom_minimum_size = Vector2(100, 30)
 		btn.add_theme_font_size_override("font_size", 12)
 		btn.add_theme_color_override("font_color", Color(0.7, 1.0, 0.9))
-		btn.text = KeymapManager.event_to_string(events[i])
+		btn.text = km.event_to_string(events[i])
 		var event_ref: InputEvent = events[i]
 		btn.pressed.connect(_on_rebind_pressed.bind(action, event_ref, i, btn))
 		row.add_child(btn)
@@ -501,21 +503,26 @@ func _input(event: InputEvent) -> void:
 	get_viewport().set_input_as_handled()
 	var action := _rebinding_action
 	var is_adding: bool = bool(get_meta("adding_binding", false))
+	var km: Node = _get_keymap_manager()
+	if km == null:
+		_rebinding_action = ""
+		set_process_input(false)
+		return
 
 	# Check for conflicts within the same context
-	var conflicts: Array[String] = KeymapManager._find_conflicts_for_event(action, event)
+	var conflicts: Array[String] = km._find_conflicts_for_event(action, event)
 	if conflicts.size() > 0:
 		# Show conflict warning but still allow the rebind
 		_conflict_warning.text = "⚠ Conflict: %s is also bound to %s in the same context. Rebinding anyway — fix or reset." \
-			% [KeymapManager.event_to_string(event), ", ".join(conflicts)]
+			% [km.event_to_string(event), ", ".join(conflicts)]
 		_conflict_warning.show()
 
 	# Perform the rebind
 	if is_adding:
-		KeymapManager.add_binding(action, event, true)
+		km.add_binding(action, event, true)
 		remove_meta("adding_binding")
 	else:
-		KeymapManager.rebind_action(action, event, true)
+		km.rebind_action(action, event, true)
 
 	_rebinding_action = ""
 	set_process_input(false)
@@ -538,12 +545,13 @@ func _refresh_binding_row(action: String) -> void:
 		return
 	var row_info: Dictionary = _binding_rows[action]
 	var buttons: Array[Button] = row_info.buttons
-	if not KeymapManager or not InputMap.has_action(action):
+	var km: Node = _get_keymap_manager()
+	if km == null or not InputMap.has_action(action):
 		return
 	var events: Array[InputEvent] = InputMap.action_get_events(action)
 	for i in range(buttons.size()):
 		if i < events.size():
-			buttons[i].text = KeymapManager.event_to_string(events[i])
+			buttons[i].text = km.event_to_string(events[i])
 			buttons[i].visible = true
 			buttons[i].add_theme_color_override("font_color", Color(0.7, 1.0, 0.9))
 		else:
@@ -563,9 +571,10 @@ func _refresh_binding_row(action: String) -> void:
 
 
 func _refresh_conflict_warnings() -> void:
-	if not KeymapManager:
+	var km: Node = _get_keymap_manager()
+	if km == null:
 		return
-	var all_conflicts: Array[Dictionary] = KeymapManager.find_all_conflicts()
+	var all_conflicts: Array[Dictionary] = km.find_all_conflicts()
 	if all_conflicts.is_empty():
 		_conflict_warning.hide()
 		# Clear any red highlighting on labels
@@ -578,7 +587,7 @@ func _refresh_conflict_warnings() -> void:
 	var parts: Array[String] = []
 	for c in all_conflicts:
 		parts.append("%s: %s bound to %s" \
-			% [KeymapManager.get_context_label(c.context), c.event_label, ", ".join(c.actions)])
+			% [km.get_context_label(c.context), c.event_label, ", ".join(c.actions)])
 	_conflict_warning.text = "⚠ CONFLICTS DETECTED:\n" + "\n".join(parts)
 	_conflict_warning.show()
 	# Highlight conflicting actions in red
@@ -597,12 +606,22 @@ func _refresh_conflict_warnings() -> void:
 
 func _on_reset_keybindings() -> void:
 	_play_ui_click(true)
-	if KeymapManager:
-		KeymapManager.reset_all()
+	var km: Node = _get_keymap_manager()
+	if km:
+		km.reset_all()
 	# Refresh all rows
 	for action in _binding_rows:
 		_refresh_binding_row(action)
 	_refresh_conflict_warnings()
+
+
+## Resolve the KeymapManager autoload via the scene tree (linter-safe —
+## autoloads are not visible in the static scope).
+func _get_keymap_manager() -> Node:
+	var ml := Engine.get_main_loop()
+	if ml is SceneTree and ml.root and ml.root.has_node("KeymapManager"):
+		return ml.root.get_node("KeymapManager")
+	return null
 
 # ------------------------------------------------------------------------------
 # ACCESSIBILITY Section

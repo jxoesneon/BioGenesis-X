@@ -1368,10 +1368,10 @@ func _apply_floating_origin() -> void:
 	global_position = Vector3.ZERO
 	# Cache celestial bodies on first use to avoid get_nodes_in_group() every frame.
 	if not _floating_origin_populated:
-		var tree: SceneTree = get_tree()
-		if tree == null or tree.root == null:
+		var inner_tree: SceneTree = get_tree()
+		if inner_tree == null or inner_tree.root == null:
 			return
-		for body: Node in tree.get_nodes_in_group("celestial_bodies"):
+		for body: Node in inner_tree.get_nodes_in_group("celestial_bodies"):
 			if body is Node3D:
 				_floating_origin_bodies.append(body as Node3D)
 		_floating_origin_populated = true
