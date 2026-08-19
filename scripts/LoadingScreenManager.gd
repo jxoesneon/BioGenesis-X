@@ -23,6 +23,7 @@ extends Node
 enum Stage {
 	IDLE,
 	LOADING_RESOURCE,
+	LOADING_GALAXY_MAP,
 	SCENE_SWAP,
 	WAITING_FOR_SYSTEM,
 	WAITING_FOR_NOISE,
@@ -39,10 +40,17 @@ var _target_scene_path: String = ""
 var _target_scene_name: String = ""
 var _resource_loading_path: String = ""
 
+# --- Galaxy map preload ---
+const GALAXY_MAP_PATH := "res://scenes/galaxy_map.tscn"
+var _galaxy_map_loading: bool = false
+var _galaxy_map_loaded: bool = false
+var _galaxy_map_scene: PackedScene = null
+
 # --- Progress tracking ---
 var _resource_progress: float = 0.0  # 0-1 from ResourceLoader
 var _init_progress: float = 0.0      # 0-1 from signal chain
 var _total_progress: float = 0.0     # combined 0-1
+var _galaxy_map_progress: float = 0.0  # 0-1 from galaxy map preload
 
 # --- Signal tracking flags ---
 var _system_loaded: bool = false
@@ -79,6 +87,14 @@ const LORE_SNIPPETS: Array[String] = [
 
 signal loading_started(scene_path: String)
 signal loading_complete(scene_path: String)
+signal galaxy_map_preloaded(packed_scene: PackedScene)
+
+## Returns the preloaded galaxy map PackedScene, or null if not yet loaded.
+## FlightHUDUI uses this to instantiate the galaxy map instantly when the
+## player presses M, instead of loading it synchronously.
+func get_galaxy_map_scene() -> PackedScene:
+	return _galaxy_map_scene
+
 
 ## Returns true if the loading screen has completed (not idle, not in progress).
 func is_complete() -> bool:
@@ -206,6 +222,9 @@ func transition_to_scene(scene_path: String) -> void:
 	_resource_progress = 0.0
 	_init_progress = 0.0
 	_total_progress = 0.0
+	_galaxy_map_progress = 0.0
+	_galaxy_map_loaded = false
+	_galaxy_map_scene = null
 	_system_loaded = false
 	_noise_generated = false
 	_chunks_loaded = false
@@ -219,11 +238,17 @@ func transition_to_scene(scene_path: String) -> void:
 	_overlay.visible = true
 	_fade_overlay_in()
 
-	# Start threaded resource loading
+	# Start threaded resource loading for the main scene
 	_resource_loading_path = scene_path
 	ResourceLoader.load_threaded_request(scene_path)
 	_stage = Stage.LOADING_RESOURCE
 	_status_label.text = "Loading scene resources..."
+
+	# Simultaneously preload the galaxy map scene so it's ready the moment
+	# the player enters flight. This eliminates the hitch when pressing M
+	# to open the galaxy map for the first time.
+	_galaxy_map_loading = true
+	ResourceLoader.load_threaded_request(GALAXY_MAP_PATH)
 
 	# Trigger BioAudioDirector audio crossfade (without scene change)
 	var ml := Engine.get_main_loop()
@@ -278,6 +303,23 @@ func _process(delta: float) -> void:
 # Stage: Resource Loading
 # ==============================================================================
 func _poll_resource_loading() -> void:
+	# Poll galaxy map preload (runs in parallel, doesn't block stage transition)
+	if _galaxy_map_loading:
+		var gm_status: int = ResourceLoader.load_threaded_get_status(GALAXY_MAP_PATH)
+		match gm_status:
+			ResourceLoader.THREAD_LOAD_LOADED:
+				_galaxy_map_scene = ResourceLoader.load_threaded_get(GALAXY_MAP_PATH)
+				_galaxy_map_loaded = true
+				_galaxy_map_loading = false
+				_galaxy_map_progress = 1.0
+				galaxy_map_preloaded.emit(_galaxy_map_scene)
+				print("[LoadingScreen] Galaxy map preloaded and cached.")
+			ResourceLoader.THREAD_LOAD_IN_PROGRESS:
+				_galaxy_map_progress = minf(_galaxy_map_progress + 0.02, 0.95)
+			_:
+				_galaxy_map_loading = false
+				_galaxy_map_progress = 1.0  # Don't let a failed preload block progress
+
 	if _resource_loading_path.is_empty():
 		_stage = Stage.SCENE_SWAP
 		return
@@ -542,8 +584,13 @@ func _update_status(text: String, init_fraction: float) -> void:
 	_init_progress = init_fraction
 
 func _update_progress_bar() -> void:
-	# Combine resource loading progress with init progress
-	var resource_weight: float = 0.3
+	# Combine resource loading, galaxy map preload, and init progress.
+	# Weights are tuned so the bar moves smoothly without stalling at 30%:
+	#   - Resource loading: 20%
+	#   - Galaxy map preload: 10%
+	#   - Init signals (system/noise/chunks/asteroids): 70%
+	var resource_weight: float = 0.2
+	var galaxy_map_weight: float = 0.1
 	var init_weight: float = 0.7
 
 	# Compute init progress from signal flags
@@ -557,5 +604,10 @@ func _update_progress_bar() -> void:
 	if _asteroids_generated:
 		init_frac += 0.25
 
-	_total_progress = _resource_progress * resource_weight + init_frac * init_weight
+	# Smooth interpolation toward target to prevent the bar from stalling
+	# at a fixed percentage while waiting for the next signal.
+	var target: float = _resource_progress * resource_weight \
+		+ _galaxy_map_progress * galaxy_map_weight \
+		+ init_frac * init_weight
+	_total_progress = lerpf(_total_progress, target, 0.08)
 	_progress_bar.value = _total_progress * 100.0

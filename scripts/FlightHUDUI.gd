@@ -195,6 +195,7 @@ var _telemetry_ref: Node = null
 var _flight_controller_ref: Node = null
 var _weapon_system_ref: Node = null
 var galaxy_map_instance: Node = null
+var _galaxy_map_packed: PackedScene = null  # Cached from LoadingScreenManager preload
 
 # Smoothed reticle position — lerps toward mouse_flight_cursor to eliminate
 # jitter from physics/render rate mismatch and per-frame input variation.
@@ -223,8 +224,33 @@ func _ready() -> void:
 	add_to_group("flight_hud")
 	_build_ui_layout()
 	_locate_engine_autoloads()
+	# Try to grab the preloaded galaxy map scene from LoadingScreenManager.
+	# This was preloaded during the loading screen so pressing M is instant.
+	_fetch_preloaded_galaxy_map()
 	if not resized.is_connected(_on_resized):
 		resized.connect(_on_resized)
+
+
+## Fetches the galaxy map PackedScene cached by LoadingScreenManager during
+## the loading screen. Falls back to a synchronous load if not available.
+func _fetch_preloaded_galaxy_map() -> void:
+	var ml := Engine.get_main_loop()
+	if ml is SceneTree and ml.root and ml.root.has_node("LoadingScreenManager"):
+		var lsm: Node = ml.root.get_node("LoadingScreenManager")
+		if lsm.has_method("get_galaxy_map_scene"):
+			var preloaded: PackedScene = lsm.get_galaxy_map_scene()
+			if preloaded:
+				_galaxy_map_packed = preloaded
+				print("[FlightHUDUI] Galaxy map scene retrieved from preload cache.")
+				return
+		# Connect to the signal for when it finishes loading
+		if lsm.has_signal("galaxy_map_preloaded") and not lsm.galaxy_map_preloaded.is_connected(_on_galaxy_map_preloaded):
+			lsm.galaxy_map_preloaded.connect(_on_galaxy_map_preloaded)
+
+
+func _on_galaxy_map_preloaded(packed_scene: PackedScene) -> void:
+	_galaxy_map_packed = packed_scene
+	print("[FlightHUDUI] Galaxy map scene preloaded via signal.")
 
 func _exit_tree() -> void:
 	if resized.is_connected(_on_resized):
@@ -859,7 +885,13 @@ func _toggle_galaxy_map() -> void:
 		
 		var root_scene := get_tree().current_scene
 		
-		var map_packed := load("res://scenes/galaxy_map.tscn")
+		# Use the preloaded galaxy map scene if available (instant instantiation).
+		# Fall back to synchronous load only if the preload cache missed.
+		if _galaxy_map_packed == null:
+			_fetch_preloaded_galaxy_map()
+		if _galaxy_map_packed == null:
+			_galaxy_map_packed = load("res://scenes/galaxy_map.tscn")
+		var map_packed: PackedScene = _galaxy_map_packed
 		if map_packed:
 			galaxy_map_instance = map_packed.instantiate()
 			# Add to the root 3D scene, NOT the 2D UI CanvasLayer
