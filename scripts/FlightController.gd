@@ -641,8 +641,11 @@ func _handle_wave_engine(delta: float) -> void:
 				var safe_speed := sqrt(2.0 * wave_acceleration * brake_distance) + max_boost_speed
 				target_cruise_speed = clampf(safe_speed, max_boost_speed, wave_max_speed)
 
-			# Auto-steer: gradually align ship heading toward locked target during cruise
-			_auto_align_to_target(delta, wave_target_node, 1.5)
+			# Auto-steer: inside the warp bubble, the ship's orientation is
+			# geometrically stable — no torque physics. Directly slerp the
+			# basis toward the target heading (the bubble keeps the ship
+			# aligned with the spacetime flow direction).
+			_warp_align_to_target(delta, wave_target_node)
 
 		# Accelerate/decelerate toward target cruise speed
 		wave_current_speed = move_toward(wave_current_speed, target_cruise_speed, wave_acceleration * delta)
@@ -795,6 +798,24 @@ func _auto_align_to_target(delta: float, target: Node3D, strength: float) -> voi
 	rotate_object_local(Vector3.UP, angular_velocity_vector.y * delta)
 	rotate_object_local(Vector3.BACK, angular_velocity_vector.z * delta)
 	transform.basis = transform.basis.orthonormalized()
+
+## Warp-bubble alignment: directly slerps the ship's orientation toward the
+## target inside the Alcubierre bubble. No torque, no angular velocity — the
+## ship is geometrically carried by the spacetime flow, not pushed by engines.
+func _warp_align_to_target(delta: float, target: Node3D) -> void:
+	if not is_instance_valid(target):
+		return
+	var my_pos: Vector3 = global_position if is_inside_tree() else position
+	var t_pos: Vector3 = target.global_position if target.is_inside_tree() else target.position
+	var dir_to_target := (t_pos - my_pos).normalized()
+	# Build a target basis looking toward the target along -Z (ship forward).
+	var target_basis := Basis.looking_at(dir_to_target, Vector3.UP)
+	var q_curr := transform.basis.get_rotation_quaternion()
+	var q_targ := target_basis.get_rotation_quaternion()
+	# Gentle slerp — the bubble keeps the ship aligned with the flow.
+	transform.basis = Basis(q_curr.slerp(q_targ, clampf(delta * 1.5, 0.0, 1.0))).orthonormalized()
+	# Zero out any residual angular velocity from the pre-warp phase.
+	angular_velocity_vector = angular_velocity_vector.lerp(Vector3.ZERO, clampf(delta * 5.0, 0.0, 1.0))
 
 ## Safely drops out of the Wave Engine supercruise back into sublight dogfight flight.
 func disengage_wave_engine() -> void:
@@ -1255,6 +1276,17 @@ func _apply_floating_origin() -> void:
 ## Calculates acceleration and resultant G-Forces.
 func _calculate_g_forces(delta: float) -> void:
 	if delta <= 0.0001:
+		return
+	# Alcubierre warp bubble: the ship is locally stationary inside the
+	# bubble. Spacetime contracts ahead and expands behind, but the ship
+	# experiences zero proper acceleration — no G-forces, no tidal stress.
+	# The velocity change is spacetime moving around the ship, not the
+	# ship accelerating through space.
+	if wave_state == WaveState.ENGAGED:
+		last_velocity = linear_velocity_vector
+		# Smoothly return to 1G (normal pilot body weight) inside the bubble.
+		current_g_force = lerp(current_g_force, 1.0, clampf(delta * 3.0, 0.0, 1.0))
+		g_force_updated.emit(current_g_force)
 		return
 	var accel_vec := (linear_velocity_vector - last_velocity) / delta
 	last_velocity = linear_velocity_vector
