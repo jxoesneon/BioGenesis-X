@@ -137,6 +137,17 @@ func _initialize_debug_api() -> void:
 		% _api.list_enabled_monitors().size())
 
 
+## Set the debug panel visibility from SettingsSystem.
+func set_panel_visible(visible: bool) -> void:
+	if _api and _api.has_method("set_panel_visible"):
+		_api.set_panel_visible(visible)
+
+## Set the debug panel update rate (seconds between refreshes) from SettingsSystem.
+func set_panel_update_rate(rate: float) -> void:
+	if _api and _api.has_method("configure_auto_panel"):
+		_api.configure_auto_panel({"update_interval": clampf(rate, 0.05, 1.0)})
+
+
 # ==============================================================================
 # Custom monitor registration
 # ==============================================================================

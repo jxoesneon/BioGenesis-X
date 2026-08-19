@@ -116,6 +116,38 @@ const DEFAULTS: Dictionary = {
 	"localization": {
 		"language": "en",            # ISO 639-1 code (en, es, ...). Default resolved at boot.
 	},
+	"debug": {
+		# --- Performance Overlays ---
+		"show_fps_counter": false,       # bool — on-screen FPS counter (top-left)
+		"show_frame_time": false,        # bool — on-screen frame time (ms)
+		"show_draw_calls": false,        # bool — on-screen draw call count
+		# --- Collision & Physics Debug ---
+		"show_collision_shapes": false,  # bool — F3 collision wireframe debug
+		"show_physics_debug": false,     # bool — JoltPhysics3D debug renderer
+		# --- Noise Map Overlay (F4) ---
+		"noise_overlay_enabled": false,  # bool — master toggle for noise map overlay
+		"noise_overlay_opacity": 0.6,    # 0.1 - 1.0 (debug overlay plane opacity)
+		"noise_show_resources": true,    # bool (debug overlay channel visibility)
+		"noise_show_enemies": true,      # bool
+		"noise_show_anomalies": true,    # bool
+		"noise_show_hazards": true,      # bool
+		# --- Debug Panel (F12) ---
+		"debug_panel_enabled": false,    # bool — DebugManager F12 panel auto-show
+		"debug_panel_update_rate": 0.1,  # 0.05 - 1.0 (seconds between refreshes)
+		# --- Telemetry Overlays ---
+		"show_organ_telemetry": false,   # bool — always-on organ telemetry overlay
+		"show_wave_engine_state": false, # bool — wave engine state overlay
+		"show_flight_debug": false,      # bool — velocity/accel/G-force overlay
+		# --- Cheats / Developer Tools ---
+		"god_mode": false,               # bool — invincibility (no hull damage)
+		"infinite_fuel": false,           # bool — no bio-plasma fuel drain
+		"infinite_boost": false,          # bool — boost never depletes reserve
+		# --- Time Scale (slow-mo / fast-forward) ---
+		"time_scale": 1.0,               # 0.1 - 4.0 (1.0 = real-time)
+		# --- Logging ---
+		"verbose_logging": false,        # bool — print debug statements to console
+		"log_level": 1,                  # 0=Errors, 1=Warnings, 2=Info, 3=Debug
+	},
 }
 
 var _settings: Dictionary = {}
@@ -274,6 +306,8 @@ func _apply_setting(section: String, key: String, value: Variant) -> void:
 			_apply_accessibility_setting(key, value)
 		"localization":
 			_apply_localization_setting(key, value)
+		"debug":
+			_apply_debug_setting(key, value)
 
 func _apply_audio_setting(key: String, value: Variant) -> void:
 	match key:
@@ -502,6 +536,92 @@ func get_supported_languages() -> Array:
 ## Get a human-readable display name for a language code.
 func get_language_display_name(code: String) -> String:
 	return String(SUPPORTED_LANGUAGES.get(code, code))
+
+# --- Debug settings ---
+
+func _apply_debug_setting(key: String, value: Variant) -> void:
+	# Debug settings are read by game systems at runtime via get_setting().
+	# Some are applied live to active subsystems when present.
+	match key:
+		"show_collision_shapes":
+			_apply_collision_debug(bool(value))
+		"debug_panel_enabled":
+			_apply_debug_panel(bool(value))
+		"debug_panel_update_rate":
+			_apply_debug_panel_rate(float(value))
+		"time_scale":
+			_apply_time_scale(float(value))
+		"verbose_logging":
+			_apply_verbose_logging(bool(value))
+		"noise_overlay_enabled":
+			_apply_noise_overlay_enabled(bool(value))
+		"noise_overlay_opacity":
+			_apply_noise_overlay_opacity(float(value))
+		"noise_show_resources", "noise_show_enemies", \
+		"noise_show_anomalies", "noise_show_hazards":
+			_apply_noise_channel_visibility_debug()
+		# Performance overlays, telemetry overlays, and cheats are read live
+		# by FlightController / FlightHUDUI / NeuralRegen via get_setting().
+		_:
+			pass
+
+func _apply_collision_debug(enabled: bool) -> void:
+	var tree := get_tree()
+	if not tree:
+		return
+	var fc: Node = null
+	if tree.root:
+		fc = tree.root.get_node_or_null("SpaceFlight/FlightController")
+	if fc == null:
+		# Fall back to group lookup
+		var arr := tree.get_nodes_in_group("flight_controller")
+		if arr.size() > 0:
+			fc = arr[0]
+	if fc and fc.has_method("toggle_collision_debug"):
+		# toggle_collision_debug flips state; only call if the desired state
+		# differs from the current state to avoid double-toggling.
+		var current: bool = bool(fc.get("_collision_debug_active"))
+		if current != enabled:
+			fc.toggle_collision_debug()
+
+func _apply_debug_panel(enabled: bool) -> void:
+	var tree := get_tree()
+	if not tree or not tree.root:
+		return
+	var dm: Node = tree.root.get_node_or_null("DebugManager")
+	if dm and dm.has_method("set_panel_visible"):
+		dm.set_panel_visible(enabled)
+
+func _apply_debug_panel_rate(rate: float) -> void:
+	var tree := get_tree()
+	if not tree or not tree.root:
+		return
+	var dm: Node = tree.root.get_node_or_null("DebugManager")
+	if dm and dm.has_method("set_panel_update_rate"):
+		dm.set_panel_update_rate(rate)
+
+func _apply_time_scale(scale: float) -> void:
+	var clamped := clampf(scale, 0.1, 4.0)
+	Engine.time_scale = clamped
+
+func _apply_verbose_logging(enabled: bool) -> void:
+	# Stored in settings — systems check get_setting("debug", "verbose_logging")
+	# at runtime to decide whether to print debug output.
+	pass
+
+func _apply_noise_overlay_enabled(enabled: bool) -> void:
+	var tree := get_tree()
+	if not tree or not tree.root:
+		return
+	var overlay: Node = tree.root.get_node_or_null("SpaceFlight/NoiseOverlay")
+	if overlay == null:
+		overlay = tree.root.get_node_or_null("NoiseOverlay")
+	if overlay:
+		overlay.visible = enabled
+
+func _apply_noise_channel_visibility_debug() -> void:
+	# Reuse the existing gameplay noise channel visibility logic.
+	_apply_noise_channel_visibility()
 
 # --- Graphics helper functions ---
 

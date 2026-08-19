@@ -40,6 +40,7 @@ const COLOR_ACCENT_GAMEPLAY := Color(0.0, 1.0, 0.6)
 const COLOR_ACCENT_CONTROLS := Color(1.0, 0.8, 0.2)
 const COLOR_ACCENT_ACCESS := Color(1.0, 0.5, 0.3)
 const COLOR_ACCENT_BACK := Color(1.0, 0.3, 0.3)
+const COLOR_ACCENT_DEBUG := Color(1.0, 0.85, 0.2)  # Yellow — caution/debug convention
 const COLOR_HEADER := Color(0.0, 0.85, 0.65)
 
 # --- UI References ---
@@ -51,6 +52,7 @@ var _scroll_gameplay: ScrollContainer
 var _scroll_controls: ScrollContainer
 var _scroll_accessibility: ScrollContainer
 var _scroll_language: ScrollContainer
+var _scroll_debug: ScrollContainer
 
 # --- Section inner VBoxes ---
 var _section_graphics: VBoxContainer
@@ -59,6 +61,7 @@ var _section_gameplay: VBoxContainer
 var _section_controls: VBoxContainer
 var _section_accessibility: VBoxContainer
 var _section_language: VBoxContainer
+var _section_debug: VBoxContainer
 
 func _ready() -> void:
 	set_anchors_and_offsets_preset(PRESET_FULL_RECT)
@@ -161,6 +164,13 @@ func _build_settings_ui() -> void:
 	_tab_container.add_child(_scroll_language)
 	_section_language = _get_inner_vbox(_scroll_language)
 	_populate_language_section()
+
+	# DEBUG section (developer tools — only visible in debug builds)
+	if OS.is_debug_build():
+		_scroll_debug = _build_section_scroll(tr("DEBUG"), COLOR_ACCENT_DEBUG)
+		_tab_container.add_child(_scroll_debug)
+		_section_debug = _get_inner_vbox(_scroll_debug)
+		_populate_debug_section()
 
 	root_vbox.add_child(HSeparator.new())
 
@@ -379,6 +389,69 @@ func _populate_language_section() -> void:
 	info.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	info.custom_minimum_size = Vector2(600, 0)
 	vbox.add_child(info)
+
+# ------------------------------------------------------------------------------
+# DEBUG Section (Developer Tools — debug builds only)
+# ------------------------------------------------------------------------------
+
+func _populate_debug_section() -> void:
+	var vbox := _section_debug
+
+	# Warning banner
+	var warning := Label.new()
+	warning.text = "⚠ Developer tools — for testing only. Cheats and overlays may break gameplay balance."
+	warning.add_theme_color_override("font_color", COLOR_ACCENT_DEBUG)
+	warning.add_theme_font_size_override("font_size", 12)
+	warning.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	warning.custom_minimum_size = Vector2(600, 0)
+	vbox.add_child(warning)
+
+	# --- Performance Overlays ---
+	_add_section_header(vbox, "Performance Overlays")
+	_add_checkbox(vbox, "Show FPS Counter", "debug", "show_fps_counter")
+	_add_checkbox(vbox, "Show Frame Time (ms)", "debug", "show_frame_time")
+	_add_checkbox(vbox, "Show Draw Calls", "debug", "show_draw_calls")
+
+	# --- Collision & Physics Debug ---
+	_add_section_header(vbox, "Collision & Physics")
+	_add_checkbox(vbox, "Show Collision Shapes (F3)", "debug", "show_collision_shapes")
+	_add_checkbox(vbox, "Show Physics Debug (Jolt)", "debug", "show_physics_debug")
+
+	# --- Noise Map Overlay (F4) ---
+	_add_section_header(vbox, "Noise Map Overlay (F4)")
+	_add_checkbox(vbox, "Enable Noise Overlay", "debug", "noise_overlay_enabled")
+	_add_slider(vbox, "Overlay Opacity", "debug", "noise_overlay_opacity", 0.1, 1.0, 0.05, _format_percent)
+	_add_checkbox(vbox, "Show Resources (Green)", "debug", "noise_show_resources")
+	_add_checkbox(vbox, "Show Enemies (Red)", "debug", "noise_show_enemies")
+	_add_checkbox(vbox, "Show Anomalies (Purple)", "debug", "noise_show_anomalies")
+	_add_checkbox(vbox, "Show Hazards (Yellow)", "debug", "noise_show_hazards")
+
+	# --- Debug Panel (F12) ---
+	_add_section_header(vbox, "Debug Panel (F12)")
+	_add_checkbox(vbox, "Auto-show Debug Panel", "debug", "debug_panel_enabled")
+	_add_slider(vbox, "Panel Update Rate (s)", "debug", "debug_panel_update_rate", 0.05, 1.0, 0.05, _format_seconds)
+
+	# --- Telemetry Overlays ---
+	_add_section_header(vbox, "Telemetry Overlays")
+	_add_checkbox(vbox, "Show Organ Telemetry", "debug", "show_organ_telemetry")
+	_add_checkbox(vbox, "Show Wave Engine State", "debug", "show_wave_engine_state")
+	_add_checkbox(vbox, "Show Flight Debug (vel/accel/G)", "debug", "show_flight_debug")
+
+	# --- Cheats / Developer Tools ---
+	_add_section_header(vbox, "Cheats / Developer Tools")
+	_add_checkbox(vbox, "God Mode (no hull damage)", "debug", "god_mode")
+	_add_checkbox(vbox, "Infinite Fuel (no plasma drain)", "debug", "infinite_fuel")
+	_add_checkbox(vbox, "Infinite Boost (no reserve drain)", "debug", "infinite_boost")
+
+	# --- Time Scale ---
+	_add_section_header(vbox, "Time Scale (Slow-Mo / Fast-Forward)")
+	_add_slider(vbox, "Time Scale (1.0 = real-time)", "debug", "time_scale", 0.1, 4.0, 0.1, _format_multiplier)
+
+	# --- Logging ---
+	_add_section_header(vbox, "Logging")
+	_add_checkbox(vbox, "Verbose Logging", "debug", "verbose_logging")
+	_add_dropdown(vbox, "Log Level", "debug", "log_level",
+		["Errors Only", "Warnings", "Info", "Debug"], [0, 1, 2, 3])
 
 func _add_language_dropdown(parent: VBoxContainer) -> void:
 	var row := HBoxContainer.new()
@@ -611,6 +684,9 @@ func _format_mouse_sens(val: float) -> String:
 
 func _format_km(val: float) -> String:
 	return "%.1f km" % val
+
+func _format_seconds(val: float) -> String:
+	return "%.2fs" % val
 
 # ------------------------------------------------------------------------------
 # Settings Bridge
