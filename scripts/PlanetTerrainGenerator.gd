@@ -461,7 +461,7 @@ func _build_skirt_vertices(positions: PackedVector3Array, normals: PackedVector3
 func _write_skirt_vertex(idx: int, grid_idx: int, skirt_depth: float,
 		positions: PackedVector3Array, normals: PackedVector3Array,
 		tangents: PackedFloat32Array, pos_data: PackedByteArray,
-		_nrm_data: PackedByteArray, tan_data: PackedByteArray) -> int:
+		_nrm_data: PackedByteArray, _tan_data: PackedByteArray) -> int:
 	# Use the raw (pre-origin) position to compute the inward direction.
 	var off: int = grid_idx * _VEC4_BYTES
 	var raw_px: float = pos_data.decode_float(off)
@@ -658,7 +658,7 @@ func _test_frustum(aabb: AABB, planes: Array[Plane]) -> int:
 ## camera's viewpoint. Uses angular geometry: the camera's horizon angle
 ## (depends on altitude) combined with the chunk's angular extent. Mountains
 ## can peek above the geometric horizon via the terrain_height extension.
-func _is_above_horizon(chunk_dir: Vector3, _face: int, lod: int, cx: int, cy: int, camera_pos: Vector3) -> bool:
+func _is_above_horizon(chunk_dir: Vector3, _face: int, lod: int, _cx: int, _cy: int, camera_pos: Vector3) -> bool:
 	var camera_distance: float = camera_pos.length()
 	# Camera inside the planet — everything is visible.
 	if camera_distance <= planet_radius_m:
