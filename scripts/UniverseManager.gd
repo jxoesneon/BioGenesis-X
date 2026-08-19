@@ -17,6 +17,7 @@ const HostStarCoronaShader = preload("res://shaders/host_star_corona.gdshader")
 signal system_loaded(system_data: Dictionary)
 signal hyperjump_started(target_system_name: String)
 signal hyperjump_completed(new_system_data: Dictionary)
+signal poi_discovered(poi_data: Dictionary)
 
 @export var galactic_coordinates_ly: Vector3 = Vector3(0.0, 15.0, 26000.0) # Sol Sector
 @export var current_system_seed: int = 0x50756D69 ^ 1337
@@ -27,14 +28,38 @@ var current_system_data: Dictionary = {}
 var host_star_node: Node3D = null
 var planets_container: Node3D = null
 
+# --- SaveSystem integration ---
+# Cached reference to the SaveSystem autoload (null in @tool/editor mode).
+var _save_system: Node = null
+# Player node whose position is persisted across system transitions.
+var _player_node: Node3D = null
+
 func _ready() -> void:
 	# Route system_loaded to the PlanetEntryManager autoload so it knows the
 	# star type and planet positions whenever a new system is instantiated.
 	if not Engine.is_editor_hint():
 		if not system_loaded.is_connected(_on_system_loaded_for_planet_entry):
 			system_loaded.connect(_on_system_loaded_for_planet_entry)
+		# Resolve the SaveSystem autoload and hook into its about_to_save signal
+		# so universe state is flushed before every save.
+		_save_system = get_tree().root.get_node_or_null("SaveSystem")
+		if _save_system != null and _save_system.has_signal("about_to_save"):
+			if not _save_system.about_to_save.is_connected(_save_state):
+				_save_system.about_to_save.connect(_save_state)
 	if auto_spawn_on_ready:
 		load_star_system_by_seed(current_system_seed)
+
+## Returns the SaveSystem autoload node, or null if unavailable (editor/no autoload).
+func get_save_system() -> Node:
+	if _save_system == null and not Engine.is_editor_hint():
+		var tree: SceneTree = get_tree()
+		if tree != null and tree.root != null:
+			_save_system = tree.root.get_node_or_null("SaveSystem")
+	return _save_system
+
+## Sets the player node whose world position is persisted on system exit.
+func set_player_node(player: Node3D) -> void:
+	_player_node = player
 
 ## Forwards freshly-loaded star system data to the PlanetEntryManager autoload
 ## so the descent coordinator is aware of the active star type and planet layout.
@@ -53,11 +78,52 @@ func load_star_system_by_seed(seed_val: int) -> void:
 	current_system_seed = seed_val
 	current_system_data = ProceduralGalaxyClass.generate_star_system(current_system_seed, galactic_coordinates_ly)
 	
+	# Persist the current system + mark it visited in SaveSystem.
+	_record_current_system()
+	
 	_clear_current_system()
 	_instantiate_host_star()
 	_instantiate_planets()
 	
+	# Restore the player's last known position for this system if recorded.
+	_restore_player_position()
+	
 	system_loaded.emit(current_system_data)
+
+## Records the current system into SaveSystem (current system + visited list).
+func _record_current_system() -> void:
+	var ss: Node = get_save_system()
+	if ss == null or not ss.has_method("set_current_system"):
+		return
+	ss.call("set_current_system", current_system_data)
+	# set_current_system already marks the system visited, but call the alias
+	# explicitly for clarity in logs / future-proofing.
+	if ss.has_method("add_visited_system"):
+		var sys_name: String = current_system_data.get("name", "")
+		if not sys_name.is_empty():
+			ss.call("add_visited_system", sys_name)
+
+## Restores the player's persisted world position for the current system, if any.
+func _restore_player_position() -> void:
+	var ss: Node = get_save_system()
+	if ss == null or not ss.has_method("has_player_position"):
+		return
+	if not ss.call("has_player_position"):
+		return
+	if _player_node == null or not is_instance_valid(_player_node):
+		return
+	var pos: Vector3 = ss.call("get_player_position")
+	_player_node.global_position = pos
+	print("UniverseManager: Restored player position to ", pos)
+
+## Saves the player's current world position to SaveSystem (call on system exit).
+func save_player_position() -> void:
+	var ss: Node = get_save_system()
+	if ss == null or not ss.has_method("set_player_position"):
+		return
+	if _player_node == null or not is_instance_valid(_player_node):
+		return
+	ss.call("set_player_position", _player_node.global_position)
 
 ## Returns true if a star system has been loaded and is ready.
 func is_system_loaded() -> bool:
@@ -216,9 +282,43 @@ func _instantiate_planets() -> void:
 		planet_node.add_to_group("celestial_bodies")
 		planet_node.add_to_group("targets")
 		planet_node._ready()
+		
+		# Persist the planet seed and mark the system as explored on discovery.
+		_record_planet_discovery(p_data)
+
+## Records a planet discovery into SaveSystem (planet seed + explored system).
+func _record_planet_discovery(p_data: Dictionary) -> void:
+	var ss: Node = get_save_system()
+	if ss == null:
+		return
+	var planet_name: String = p_data.get("name", "")
+	var p_seed: int = int(p_data.get("seed", current_system_seed))
+	if not planet_name.is_empty() and ss.has_method("set_planet_seed"):
+		ss.call("set_planet_seed", planet_name, p_seed)
+	var sys_name: String = current_system_data.get("name", "")
+	if not sys_name.is_empty() and ss.has_method("add_explored_system"):
+		ss.call("add_explored_system", sys_name)
+
+## Records a discovered point of interest (e.g. station, anomaly, nebula).
+## Emits the poi_discovered signal and persists it via SaveSystem.
+func discover_poi(poi_id: String, poi_type: String, extra: Dictionary = {}) -> void:
+	var poi_data: Dictionary = {
+		"name": poi_id,
+		"system": current_system_data.get("name", ""),
+		"type": poi_type,
+	}
+	for key in extra:
+		poi_data[key] = extra[key]
+	poi_discovered.emit(poi_data)
+	var ss: Node = get_save_system()
+	if ss != null and ss.has_method("add_discovered_poi"):
+		ss.call("add_discovered_poi", poi_data)
+		print("UniverseManager: Discovered POI '", poi_id, "' (", poi_type, ")")
 
 ## Initiates an interstellar hyperjump to a target star system.
 func hyperjump_to_system(target_system_seed: int) -> void:
+	# Save the player's last known position before leaving the current system.
+	save_player_position()
 	var target_data := ProceduralGalaxyClass.generate_star_system(target_system_seed, galactic_coordinates_ly)
 	hyperjump_started.emit(target_data.get("name", "Hyperjump Target"))
 
@@ -229,7 +329,33 @@ func hyperjump_to_system(target_system_seed: int) -> void:
 	
 	# Load new system
 	load_star_system_by_seed(target_system_seed)
+	# Persist the new current system immediately so a crash mid-jump is recoverable.
+	_save_state()
 	hyperjump_completed.emit(current_system_data)
+
+## Flushes all universe state to SaveSystem. Called before saves (via the
+## about_to_save signal) and before scene transitions / system exits.
+func _save_state() -> void:
+	var ss: Node = get_save_system()
+	if ss == null:
+		return
+	# Ensure the current system + visited list are up to date.
+	if not current_system_data.is_empty() and ss.has_method("set_current_system"):
+		ss.call("set_current_system", current_system_data)
+	# Flush the player's current position.
+	if _player_node != null and is_instance_valid(_player_node) and ss.has_method("set_player_position"):
+		ss.call("set_player_position", _player_node.global_position)
+	# Persist planet seeds for every instantiated planet.
+	if planets_container != null and is_instance_valid(planets_container):
+		for child in planets_container.get_children():
+			if child is ProceduralPlanetClass:
+				var p_name: String = child.planet_name
+				if not p_name.is_empty() and ss.has_method("set_planet_seed"):
+					ss.call("set_planet_seed", p_name, current_system_seed)
+	# Mark the current system as explored.
+	var sys_name: String = current_system_data.get("name", "")
+	if not sys_name.is_empty() and ss.has_method("add_explored_system"):
+		ss.call("add_explored_system", sys_name)
 
 ## Scans the surrounding galactic volume for nearby star systems within a given light-year radius.
 func get_nearby_systems(radius_ly: float = 80.0) -> Array[Dictionary]:

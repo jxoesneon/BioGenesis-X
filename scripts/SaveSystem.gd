@@ -73,8 +73,14 @@ func _migrate_v1_to_v2(inner: Dictionary) -> void:
 	if not inner.has("procedural_seeds"):
 		inner["procedural_seeds"] = {
 			"planet_seeds": [],
+			"planet_seed_map": {},
 			"explored_systems": [],
 		}
+	else:
+		var ps: Dictionary = inner["procedural_seeds"]
+		if not ps.has("planet_seed_map"):
+			ps["planet_seed_map"] = {}
+			inner["procedural_seeds"] = ps
 
 
 # ===========================================================================
@@ -100,6 +106,7 @@ func create_debug_player() -> void:
 		"galaxy": _default_galaxy_state(),
 		"procedural_seeds": {
 			"planet_seeds": [],
+			"planet_seed_map": {},
 			"explored_systems": [],
 		},
 		"quest_weaver": {},
@@ -255,6 +262,57 @@ func get_player_position() -> Vector3:
 	return Vector3.ZERO
 
 
+## Returns true if a non-zero player position has been recorded.
+func has_player_position() -> bool:
+	var arr: Array = _galaxy_state.get("player_position", [0.0, 0.0, 0.0])
+	if arr.size() < 3:
+		return false
+	return float(arr[0]) != 0.0 or float(arr[1]) != 0.0 or float(arr[2]) != 0.0
+
+
+## Returns the current system dictionary the player is in (empty if unset).
+func get_current_system() -> Dictionary:
+	return _galaxy_state.get("current_system", {})
+
+
+## Returns the name of the current system (empty string if unset).
+func get_current_system_name() -> String:
+	return _galaxy_state.get("current_system_name", "")
+
+
+## Returns the list of visited system name Strings.
+func get_visited_systems() -> Array:
+	return _galaxy_state.get("visited_systems", [])
+
+
+## Alias for mark_system_visited — mark a system as visited by name.
+func add_visited_system(system_name: String) -> void:
+	mark_system_visited(system_name)
+
+
+## Returns true if the system has been visited before.
+func is_system_visited(system_name: String) -> bool:
+	return get_visited_systems().has(system_name)
+
+
+## Returns the list of discovered POI dictionaries.
+func get_discovered_pois() -> Array:
+	return _galaxy_state.get("discovered_pois", [])
+
+
+## Alias for discover_poi — record a discovered POI by dictionary.
+func add_discovered_poi(poi: Dictionary) -> void:
+	discover_poi(poi)
+
+
+## Record a discovered POI by its component fields (convenience overload).
+func add_discovered_poi_fields(poi_name: String, system: String, poi_type: String, extra: Dictionary = {}) -> void:
+	var poi: Dictionary = {"name": poi_name, "system": system, "type": poi_type}
+	for key in extra:
+		poi[key] = extra[key]
+	discover_poi(poi)
+
+
 # ===========================================================================
 # PUBLIC API — PROCEDURAL SEEDS
 # ===========================================================================
@@ -269,6 +327,44 @@ func add_planet_seed(seed: int) -> void:
 		current_save_data["procedural_seeds"] = seeds_dict
 
 
+## Returns the persistent list of planet seeds (Array of int).
+func get_planet_seeds() -> Array:
+	var seeds_dict: Dictionary = current_save_data.get("procedural_seeds", {})
+	return seeds_dict.get("planet_seeds", [])
+
+
+## Store a planet seed keyed by a stable planet identifier (planet name).
+## Maintains a name→seed map alongside the flat seed list for fast lookup.
+## Also appends the raw seed to the flat list so legacy callers keep working.
+func set_planet_seed(planet_id: String, seed: int) -> void:
+	if planet_id.is_empty():
+		return
+	var seeds_dict: Dictionary = current_save_data.get("procedural_seeds", {})
+	var seed_map: Dictionary = seeds_dict.get("planet_seed_map", {})
+	seed_map[planet_id] = seed
+	seeds_dict["planet_seed_map"] = seed_map
+	current_save_data["procedural_seeds"] = seeds_dict
+	# Keep the flat list in sync for backwards-compatible callers.
+	add_planet_seed(seed)
+
+
+## Retrieve a planet seed by its stable planet identifier.
+## Returns -1 if the planet has no recorded seed.
+func get_planet_seed(planet_id: String) -> int:
+	var seeds_dict: Dictionary = current_save_data.get("procedural_seeds", {})
+	var seed_map: Dictionary = seeds_dict.get("planet_seed_map", {})
+	if seed_map.has(planet_id):
+		return int(seed_map[planet_id])
+	return -1
+
+
+## Returns true if a planet seed has been recorded for the given identifier.
+func has_planet_seed(planet_id: String) -> bool:
+	var seeds_dict: Dictionary = current_save_data.get("procedural_seeds", {})
+	var seed_map: Dictionary = seeds_dict.get("planet_seed_map", {})
+	return seed_map.has(planet_id)
+
+
 ## Mark a system as explored (procedural generation has been run for it).
 func mark_system_explored(system_name: String) -> void:
 	var seeds_dict: Dictionary = current_save_data.get("procedural_seeds", {})
@@ -277,6 +373,17 @@ func mark_system_explored(system_name: String) -> void:
 		explored.append(system_name)
 		seeds_dict["explored_systems"] = explored
 		current_save_data["procedural_seeds"] = seeds_dict
+
+
+## Alias for mark_system_explored — mark a system as fully explored.
+func add_explored_system(system_name: String) -> void:
+	mark_system_explored(system_name)
+
+
+## Returns the list of explored system name Strings.
+func get_explored_systems() -> Array:
+	var seeds_dict: Dictionary = current_save_data.get("procedural_seeds", {})
+	return seeds_dict.get("explored_systems", [])
 
 
 ## Check if a system has been explored (procedural gen already run).
@@ -503,7 +610,7 @@ func _deep_merge_defaults(data: Dictionary) -> Dictionary:
 		"upgrades": {},
 		"inventory": {"credits": 0, "bio_matter": 0},
 		"galaxy": _default_galaxy_state(),
-		"procedural_seeds": {"planet_seeds": [], "explored_systems": []},
+		"procedural_seeds": {"planet_seeds": [], "planet_seed_map": {}, "explored_systems": []},
 		"quest_weaver": {},
 	}
 	return _deep_merge(data, defaults)

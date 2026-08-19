@@ -27,6 +27,9 @@ var current_indicator: MeshInstance3D
 var selected_indicator: MeshInstance3D
 var route_lines_instance: MeshInstance3D
 var route_tracer_instance: MeshInstance3D
+# Visited-system markers (MultiMesh of small rings highlighting explored stars)
+var visited_mmi: MultiMeshInstance3D
+var visited_mm: MultiMesh
 var current_path: PackedVector3Array
 var tracer_progress: float = 0.0
 
@@ -1070,6 +1073,22 @@ func _setup_indicators():
 	tracer_mesh.height = 0.4
 	tracer_mesh.material = tracer_mat
 	route_tracer_instance.mesh = tracer_mesh
+	# Visited-system markers (small amber rings, MultiMesh for efficiency)
+	visited_mm = MultiMesh.new()
+	visited_mm.transform_format = MultiMesh.TRANSFORM_3D
+	visited_mm.mesh = star_quad_mesh
+	visited_mm.instance_count = 0
+	visited_mmi = MultiMeshInstance3D.new()
+	visited_mmi.multimesh = visited_mm
+	var visited_mat := StandardMaterial3D.new()
+	visited_mat.albedo_color = Color(1.0, 0.75, 0.2)
+	visited_mat.emission_enabled = true
+	visited_mat.emission = Color(1.0, 0.75, 0.2)
+	visited_mat.emission_energy_multiplier = 3.0
+	visited_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	visited_mmi.material_override = visited_mat
+	visited_mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_OFF
+	add_child(visited_mmi)
 	route_tracer_instance.hide()
 	add_child(route_tracer_instance)
 
@@ -1118,6 +1137,23 @@ func set_current_system(system_data: Dictionary) -> void:
 	if system_data.has("position"):
 		current_indicator.position = system_data["position"] * MAP_SCALE
 		current_indicator.show()
+
+## Highlights visited systems on the map. [param positions] is an array of
+## Vector3 galactic positions (in light-years) for stars the player has visited.
+## Renders them as a MultiMesh of small amber markers.
+func highlight_visited_systems(positions: Array) -> void:
+	if visited_mm == null:
+		return
+	var count := positions.size()
+	if count == 0:
+		visited_mm.instance_count = 0
+		return
+	visited_mm.instance_count = 0
+	visited_mm.instance_count = count
+	for i in range(count):
+		var pos_ly: Vector3 = positions[i]
+		var xform := Transform3D(Basis(), pos_ly * MAP_SCALE)
+		visited_mm.set_instance_transform(i, xform)
 
 # ==========================================================================
 # HYPERLANE RENDERING (if needed)

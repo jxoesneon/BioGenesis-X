@@ -30,6 +30,20 @@ const FarAtmosphereMaterialResource = preload("res://addons/extremely_fast_atmos
 @export var atmosphere_color: Color = Color(0.25, 0.65, 1.0)
 
 # ------------------------------------------------------------------------------
+# Ocean Parameters (Boujie Water Shader — ocean archetypes only)
+# ------------------------------------------------------------------------------
+@export_group("Ocean (Boujie Water Shader)")
+## Sea level as a fraction of the planet radius above the terrain surface.
+## Only used by ocean-bearing archetypes (3: Terran Oceanic, 4: Ice World).
+@export_range(-0.5, 0.5, 0.001) var sea_level_ratio: float = 0.0
+## Base Gerstner wave height in metres (scaled by wind strength at runtime).
+@export var wave_height: float = 1.0
+## Surface water albedo color for the Boujie ocean shader.
+@export var water_color: Color = Color(0.12, 0.45, 0.75, 0.0)
+## Deep-water fog color for the Boujie ocean shader.
+@export var water_color_deep: Color = Color(0.04, 0.15, 0.35, 1.0)
+
+# ------------------------------------------------------------------------------
 # Keplerian Orbital Elements (Celestial Mechanics)
 # ------------------------------------------------------------------------------
 @export_group("Keplerian Orbital Elements")
@@ -80,6 +94,13 @@ var _far_atmosphere_material: ShaderMaterial = null
 var _atmosphere_outer_radius_m: float = 0.0
 # Sun direction for atmosphere scattering (updated by the star system manager).
 var _sun_direction: Vector3 = Vector3(0.0, 0.0, 1.0)
+# Near-field O'Neil scattering intensity (0..1), driven by
+# PlanetDescentController during descent. Low in orbit, full in atmosphere.
+var _atmosphere_intensity: float = 1.0
+# Blend between far-field (Extremely Fast Atmosphere, 0.0) and near-field
+# (O'Neil scattering, 1.0). Driven by PlanetDescentController based on the
+# camera's position relative to the atmosphere edge.
+var _atmosphere_blend: float = 0.0
 
 var elapsed_simulation_seconds: float = 0.0
 
@@ -289,6 +310,10 @@ func _generate_planet_body() -> void:
 
 	planet_mesh_instance.material_override = mat
 
+	# Configure Boujie ocean visual properties from the procedural seed (ocean
+	# archetypes only — no-op for non-ocean planets).
+	_configure_ocean_from_seed()
+
 	# --- Collision body so ships and characters collide with the planet surface ---
 	var collision_body: StaticBody3D = StaticBody3D.new()
 	collision_body.name = "PlanetCollisionBody"
@@ -340,6 +365,7 @@ func _generate_atmosphere_scattering() -> void:
 	_atmosphere_material.set_shader_parameter("atmosphere_tint", atmosphere_color)
 	_atmosphere_material.set_shader_parameter("camera_pos", Vector3.ZERO)
 	_atmosphere_material.set_shader_parameter("camera_height", radius_m * 5.0)
+	_atmosphere_material.set_shader_parameter("atmosphere_intensity", _atmosphere_intensity)
 
 	# Per-archetype scattering parameters
 	if archetype == 1: # Barren — almost no atmosphere
@@ -438,6 +464,12 @@ func _update_atmosphere_uniforms() -> void:
 		_atmosphere_material.set_shader_parameter("camera_pos", cam_local)
 		_atmosphere_material.set_shader_parameter("camera_height", cam_dist)
 		_atmosphere_material.set_shader_parameter("sun_direction", _sun_direction)
+		_atmosphere_material.set_shader_parameter("atmosphere_intensity", _atmosphere_intensity)
+	# Blend between far-field and near-field atmosphere based on _atmosphere_blend.
+	# 0.0 = far-field (EFA) visible from space, 1.0 = near-field (O'Neil) for
+	# descent/surface. The near-field mesh opacity tracks the intensity uniform,
+	# so we modulate visibility of the far-field mesh inversely.
+	_apply_atmosphere_blend(cam_dist)
 	# Far-field Extremely Fast Atmosphere (screen-space, seen from space).
 	_update_far_atmosphere(cam_dist)
 
@@ -447,6 +479,45 @@ func set_sun_direction(direction: Vector3) -> void:
 	_sun_direction = direction.normalized()
 	if _atmosphere_material != null:
 		_atmosphere_material.set_shader_parameter("sun_direction", _sun_direction)
+
+## Sets the near-field O'Neil scattering intensity (0..1). Driven by
+## PlanetDescentController during descent: low in orbit so the far-field
+## Extremely Fast Atmosphere dominates, full (1.0) once inside the atmosphere
+## and on the surface. The value is applied to the shader's
+## atmosphere_intensity uniform each frame in _update_atmosphere_uniforms().
+func set_atmosphere_intensity(intensity: float) -> void:
+	_atmosphere_intensity = clampf(intensity, 0.0, 1.0)
+
+## Returns the current near-field atmosphere scattering intensity (0..1).
+func get_atmosphere_intensity() -> float:
+	return _atmosphere_intensity
+
+## Sets the blend between far-field (Extremely Fast Atmosphere, 0.0) and
+## near-field (Sean O'Neil scattering, 1.0). Driven by PlanetDescentController
+## based on the camera's altitude relative to the atmosphere edge. The blend
+## is applied each frame in _apply_atmosphere_blend().
+func set_atmosphere_blend(blend: float) -> void:
+	_atmosphere_blend = clampf(blend, 0.0, 1.0)
+
+## Returns the current far/near-field atmosphere blend (0..1).
+func get_atmosphere_blend() -> float:
+	return _atmosphere_blend
+
+## Applies the far/near-field atmosphere blend each frame. The far-field EFA
+## mesh fades out as the blend increases (camera descends into the atmosphere)
+## while the near-field O'Neil sphere fades in via the atmosphere_intensity
+## uniform. Both are also gated by camera distance in _update_far_atmosphere().
+func _apply_atmosphere_blend(_cam_dist: float) -> void:
+	# Far-field visibility: full at blend 0, hidden at blend 1.
+	if is_instance_valid(_far_atmosphere_mesh_instance):
+		# Modulate the far-field material's density so it fades smoothly rather
+		# than popping. The EFA shader uses an atmosphere_density uniform.
+		if _far_atmosphere_material != null:
+			var far_density: float = clampf(0.2 * (1.0 - _atmosphere_blend), 0.0, 0.2)
+			_far_atmosphere_material.set_shader_parameter("atmosphere_density", far_density)
+	# Near-field intensity already applied via the atmosphere_intensity uniform
+	# in _update_atmosphere_uniforms(); the blend complements it so the two
+	# layers cross-fade rather than both being fully visible at once.
 
 ## Returns the atmosphere scattering mesh instance (or null if not created).
 func get_atmosphere_mesh() -> MeshInstance3D:
@@ -640,3 +711,70 @@ func set_high_detail(enabled: bool) -> void:
 		planet_mesh_instance.lod_bias = 0.3
 		planet_mesh_instance.visibility_range_end = _VISIBILITY_RANGE_END_M
 		# Re-evaluate the appropriate LOD level on the next throttled tick.
+
+# ==============================================================================
+# Boujie Water Shader — Ocean Parameters (ocean archetypes only)
+# ==============================================================================
+
+## Returns true if this planet's archetype hosts a Boujie water ocean.
+## Archetype 3 (Terran Oceanic) always has oceans; archetype 4 (Ice World) may
+## have liquid oceans depending on temperature.
+func has_ocean() -> bool:
+	return archetype == 3 or (archetype == 4 and surface_temp_k > 200.0)
+
+## Returns the ocean configuration derived from the planet's procedural seed and
+## physical properties. Consumed by PlanetSurfaceManager / OceanSurfaceManager
+## when the player descends to the surface.
+func get_ocean_configuration() -> Dictionary:
+	var config: Dictionary = {}
+	config["sea_level_ratio"] = sea_level_ratio
+	config["wave_height"] = wave_height
+	config["water_color"] = water_color
+	config["water_color_deep"] = water_color_deep
+	config["gravity"] = surface_gravity_ms2
+	config["wind_speed"] = _derive_ocean_wind_speed()
+	config["temperature_k"] = surface_temp_k
+	config["seed"] = _derive_ocean_seed()
+	return config
+
+## Configures the ocean visual properties (wave height, water color) from the
+## planet's procedural seed. Called during _generate_planet_body so each ocean
+## planet gets deterministic, seed-driven ocean visuals.
+func _configure_ocean_from_seed() -> void:
+	# Only ocean-bearing archetypes get ocean configuration.
+	if not has_ocean():
+		return
+	var rng := RandomNumberGenerator.new()
+	# Deterministic seed from the planet name hash + archetype.
+	var seed_val: int = planet_name.hash() ^ (archetype * 2654435761)
+	rng.seed = seed_val
+	# Wave height: 0.3..3.0 m, scaled by surface gravity (higher gravity = bigger waves).
+	var grav_factor: float = clampf(surface_gravity_ms2 / 9.81, 0.3, 2.5)
+	wave_height = clampf(rng.randf_range(0.3, 1.8) * grav_factor, 0.1, 4.0)
+	# Water color: archetype-tinted with seed jitter.
+	match archetype:
+		3: # Terran Oceanic — blue-green Earth-like.
+			var blue_jitter: float = rng.randf_range(-0.05, 0.08)
+			water_color = Color(0.12 + blue_jitter, 0.45 + blue_jitter * 0.5, 0.75 + blue_jitter, 0.0)
+			water_color_deep = Color(0.04, 0.15, 0.35, 1.0)
+		4: # Ice World — cold dark polar ocean.
+			water_color = Color(0.08, 0.22, 0.35, 0.0)
+			water_color_deep = Color(0.02, 0.08, 0.18, 1.0)
+	# Sea level ratio: small positive value so ocean fills low-lying terrain.
+	sea_level_ratio = rng.randf_range(0.0, 0.02)
+
+## Derives a deterministic ocean seed from the planet identity.
+func _derive_ocean_seed() -> int:
+	return int(planet_name.hash() ^ (archetype * 2654435761)) & 0x7FFFFFFF
+
+## Derives the ocean wind speed from the planet's rotation period and atmosphere.
+func _derive_ocean_wind_speed() -> float:
+	# Faster rotation and thicker atmosphere drive stronger winds.
+	var rot_factor: float = 24.0 / maxf(1.0, sidereal_rotation_period_hours)
+	var atm_factor: float = 1.0
+	match archetype:
+		3: atm_factor = 1.0
+		4: atm_factor = 0.6
+		5, 6: atm_factor = 1.8
+		_: atm_factor = 0.5
+	return clampf(3.0 + rot_factor * 1.5 + atm_factor * 2.0, 0.5, 20.0)

@@ -45,11 +45,18 @@ var completed_queue: Array = []             # Thread-safe results queue
 var queue_mutex: Mutex = Mutex.new()
 var overview_generated: bool = false
 
+# --- SaveSystem galaxy-state caches (loaded once on ready) ---
+var visited_system_names: Array = []        # Array of system name Strings
+var discovered_pois: Array = []             # Array of POI dictionaries
+var explored_system_names: Array = []       # Array of explored system name Strings
+var _save_system: Node = null
+
 func _ready():
-	if get_tree().root.has_node("SaveSystem"):
-		var save_sys := get_tree().root.get_node("SaveSystem")
-		if save_sys.has_method("get_upgrade"):
-			ship_jump_range = save_sys.get_upgrade("jump_range", ship_jump_range)
+	_save_system = get_tree().root.get_node_or_null("SaveSystem")
+	if _save_system and _save_system.has_method("get_upgrade"):
+		ship_jump_range = _save_system.get_upgrade("jump_range", ship_jump_range)
+	# Load persisted galaxy state for map highlighting.
+	_load_galaxy_state_from_save()
 			
 	var ui := get_node_or_null("../UI/GalaxyMapUI")
 	if ui:
@@ -65,6 +72,46 @@ func _ready():
 func refocus_on_current():
 	if camera and current_system and current_system.has("position"):
 		camera.focus_on_system(current_system["position"] * MAP_SCALE)
+
+# ==========================================================================
+# SAVE SYSTEM INTEGRATION
+# ==========================================================================
+
+## Loads persisted galaxy state (visited systems, discovered POIs, explored
+## systems) from SaveSystem so the map can highlight them.
+func _load_galaxy_state_from_save() -> void:
+	if _save_system == null:
+		return
+	if _save_system.has_method("get_visited_systems"):
+		visited_system_names = _save_system.call("get_visited_systems")
+	if _save_system.has_method("get_discovered_pois"):
+		discovered_pois = _save_system.call("get_discovered_pois")
+	if _save_system.has_method("get_explored_systems"):
+		explored_system_names = _save_system.call("get_explored_systems")
+	print("GalaxyMapManager: Loaded galaxy state — visited:", visited_system_names.size(),
+		" POIs:", discovered_pois.size(), " explored:", explored_system_names.size())
+
+## Returns true if the given system name has been visited before.
+func is_system_visited(system_name: String) -> bool:
+	return visited_system_names.has(system_name)
+
+## Returns true if the given system name has been fully explored.
+func is_system_explored(system_name: String) -> bool:
+	return explored_system_names.has(system_name)
+
+## Returns the list of discovered POIs (dictionaries with name/system/type).
+func get_discovered_pois() -> Array:
+	return discovered_pois
+
+## Persists the given system as the current system in SaveSystem (called when
+## the player selects a system to travel to).
+func save_current_system(system_data: Dictionary) -> void:
+	if _save_system == null or not _save_system.has_method("set_current_system"):
+		return
+	_save_system.call("set_current_system", system_data)
+	var sys_name: String = system_data.get("name", "")
+	if not sys_name.is_empty() and not visited_system_names.has(sys_name):
+		visited_system_names.append(sys_name)
 
 # ==========================================================================
 # OVERVIEW CLOUD: Instant galaxy shape on map open (~3000 stars, <100ms)
@@ -108,8 +155,23 @@ func _generate_overview_cloud():
 	var elapsed := Time.get_ticks_msec() - t_start
 	print("Overview cloud: ", overview_stars.size(), " stars in ", elapsed, "ms")
 
-	# Set current system and trigger intro zoom
-	if not overview_stars.is_empty():
+	# Set current system and trigger intro zoom.
+	# Prefer the persisted current system from SaveSystem if available.
+	var saved_system: Dictionary = {}
+	if _save_system != null and _save_system.has_method("get_current_system"):
+		saved_system = _save_system.call("get_current_system")
+	if not saved_system.is_empty() and saved_system.has("galactic_position_ly"):
+		current_system = saved_system.duplicate(true)
+		# Ensure the saved system has a valid index for navigation lookups.
+		if not current_system.has("index"):
+			current_system["index"] = 0
+		if not current_system.has("position"):
+			current_system["position"] = current_system.get("galactic_position_ly", Vector3.ZERO)
+		emit_signal("current_system_changed", current_system)
+		if camera and current_system.has("position"):
+			camera.intro_zoom(current_system["position"] * MAP_SCALE)
+		print("GalaxyMapManager: Restored current system '", current_system.get("name", "Unknown"), "' from save.")
+	elif not overview_stars.is_empty():
 		current_system = overview_stars[0]
 		current_system["name"] = "Current System"
 		emit_signal("current_system_changed", current_system)
@@ -129,6 +191,24 @@ func _generate_overview_cloud():
 			var path_pos := start_ly.lerp(dest_ly, t)
 			_request_sectors_near(path_pos, PREDICT_RENDER_DIST_LY)
 		_sector_update_timer = 0.0
+
+	# Highlight visited systems on the map using persisted SaveSystem state.
+	_update_visited_highlights()
+
+## Computes the galactic positions of all loaded stars whose names appear in the
+## visited-systems list and asks the visuals to highlight them.
+func _update_visited_highlights() -> void:
+	if visited_system_names.is_empty():
+		return
+	var visuals := get_node_or_null("../GalaxyMapVisuals")
+	if visuals == null or not visuals.has_method("highlight_visited_systems"):
+		return
+	var positions: Array = []
+	for star in all_stars:
+		var sname: String = star.get("name", "")
+		if not sname.is_empty() and visited_system_names.has(sname):
+			positions.append(star.get("galactic_pos", star.get("position", Vector3.ZERO)))
+	visuals.call("highlight_visited_systems", positions)
 
 # ==========================================================================
 # STREAMING: Per-frame sector management
@@ -334,6 +414,9 @@ func _mount_sector(sec_key: Vector3i, stars: Array[Dictionary]):
 	if visuals and visuals.has_method("mount_sector_chunk"):
 		visuals.mount_sector_chunk(sec_key, stars)
 
+	# Refresh visited-system highlights now that new stars are available.
+	_update_visited_highlights()
+
 	#print("[SECTOR] t=%.2fs Mounted %s with %d stars (total active: %d)" % [Time.get_ticks_msec() / 1000.0, sec_key, stars.size(), active_sectors.size()])
 
 	_nav_rebuild_pending = true
@@ -433,6 +516,8 @@ func _on_wave_ride_engaged(system_data: Dictionary):
 	if not current_route_path or current_route_path.size() < 2:
 		print("GalaxyMapManager: No valid route. Jump aborted.")
 		return
+	# Persist the destination as the new current system in SaveSystem.
+	save_current_system(system_data)
 	print("GalaxyMapManager: Passing jump execution to FlightHUDUI / FlightController...")
 
 func _unhandled_input(event):

@@ -20,7 +20,7 @@ func _get_controller() -> QuestController:
 ## Called by SynchronizeNodeExecutor when an input is received.
 ## Collects inputs and processes them deferred to bundle signals from the same frame.
 func handle_input(
-	node_def: SynchronizeNodeResource, instance: QuestInstance, received_on_port: int
+	node_def: GraphNodeResource, instance: QuestInstance, received_on_port: int
 ) -> void:
 	var controller = _get_controller()
 	if not controller:
@@ -67,10 +67,10 @@ func process_pending(node_id: StringName, instance: QuestInstance) -> void:
 	_deferred_scheduled.erase(key)
 
 	var node_def = controller._node_definitions.get(node_id)
-	if not node_def or not (node_def is SynchronizeNodeResource):
+	if not node_def or not _is_sync_node(node_def):
 		return
 
-	var sync_node = node_def as SynchronizeNodeResource
+	var sync_node = node_def
 	var logger = controller._get_logger()
 
 	# 1. Get and clear pending
@@ -93,7 +93,8 @@ func process_pending(node_id: StringName, instance: QuestInstance) -> void:
 	# 3. Check Patterns
 	var matched_indices: Array[int] = []
 
-	if sync_node.logic_mode == SynchronizeNodeResource.LogicMode.EXCLUSIVE:
+	# LogicMode.EXCLUSIVE == 0 (see SynchronizeNodeResource.LogicMode enum)
+	if sync_node.logic_mode == 0:
 		for i in range(sync_node.outputs.size()):
 			if _does_pattern_match(sync_node.outputs[i].patterns, inputs_received):
 				matched_indices.append(i)
@@ -131,21 +132,22 @@ func _does_pattern_match(pattern: Array, current_inputs: Array) -> bool:
 		var requirement = pattern[i]
 		var is_active = current_inputs[i]
 
+		# InputState: IGNORE=0, REQUIRED=1, FORBIDDEN=2
 		match requirement:
-			SynchronizeNodeResource.InputState.REQUIRED:
+			1:
 				if not is_active:
 					return false
-			SynchronizeNodeResource.InputState.FORBIDDEN:
+			2:
 				if is_active:
 					return false
-			SynchronizeNodeResource.InputState.IGNORE:
+			0:
 				pass
 
 	return true
 
 
 func _fire_output(
-	node_def: SynchronizeNodeResource,
+	node_def: GraphNodeResource,
 	instance: QuestInstance,
 	output_index: int,
 	inputs_state: Array,
@@ -171,3 +173,15 @@ func _fire_output(
 
 func clear():
 	_deferred_scheduled.clear()
+
+
+## Returns true if the node is a SynchronizeNodeResource.
+## Uses script path check to avoid loading synchronize_node_resource.gd
+## (which references SynchronizeOutputPort → ConditionResource, causing leaks at exit).
+func _is_sync_node(node_def: Resource) -> bool:
+	if not is_instance_valid(node_def):
+		return false
+	var script = node_def.get_script()
+	if not is_instance_valid(script):
+		return false
+	return "synchronize_node_resource" in script.resource_path

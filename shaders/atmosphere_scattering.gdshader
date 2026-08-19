@@ -45,6 +45,11 @@ uniform float camera_height;      // Distance from camera to planet center
 uniform float inner_radius;       // Planet surface radius (meters)
 uniform float outer_radius;       // Atmosphere edge radius (meters)
 uniform float atm_scale;          // 1.0 / (outer_radius - inner_radius)
+// Overall scattering intensity multiplier (driven by PlanetDescentController
+// during descent: low in orbit, full in atmosphere/surface). Scales both the
+// scattered color and alpha so the near-field sphere fades in smoothly as the
+// camera descends from space.
+uniform float atmosphere_intensity : hint_range(0.0, 1.0, 0.01) = 1.0;
 
 // Pass vertex position to fragment shader
 varying vec3 vertex_pos;
@@ -150,4 +155,8 @@ void fragment() {
 	ALBEDO = rayleigh_phase * rayleigh_color + mie_phase * mie_color;
 	// Alpha from scattering intensity — strong scattering hides stars behind the sky
 	ALPHA = clamp(max(ALBEDO.r, max(ALBEDO.g, ALBEDO.b)) * 5.0, 0.0, 1.0);
+	// Apply the descent-driven intensity multiplier so the near-field sphere
+	// fades in/out smoothly as the camera transitions between space and surface.
+	ALBEDO *= atmosphere_intensity;
+	ALPHA *= atmosphere_intensity;
 }

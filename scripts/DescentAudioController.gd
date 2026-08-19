@@ -111,6 +111,26 @@ var _underwater_lp_bus_idx: int = -1
 var _underwater_lp_effect_idx: int = -1
 var _underwater_filter_active: bool = false
 
+# Atmosphere density lowpass filter (applied to Master bus dynamically).
+# Distinct from the underwater filter: this tracks the continuous atmospheric
+# density reported by PlanetDescentController during descent so denser
+# atmospheres (gas giants, molten worlds, deep descent) progressively muffle
+# and roar. The cutoff frequency is driven from density (0..1+).
+var _atmosphere_lp: AudioEffectLowPassFilter = null
+var _atmosphere_lp_bus_idx: int = -1
+var _atmosphere_lp_effect_idx: int = -1
+var _atmosphere_filter_active: bool = false
+# Current atmospheric density (0..1+) smoothed each frame. 0 = vacuum,
+# 1 = sea-level, >1 = underwater / gas-giant deep.
+var _atmosphere_density: float = 0.0
+# Target density reported by PlanetDescentController (set via signal or poll).
+var _atmosphere_density_target: float = 0.0
+# Smoothing rate for density-driven filter changes (Hz/sec).
+const _ATMOSPHERE_DENSITY_SMOOTH_RATE: float = 3.0
+# Baseline cutoff (Hz) at vacuum; minimum cutoff at max density.
+const _ATMOSPHERE_LP_CUTOFF_MAX: float = 20000.0
+const _ATMOSPHERE_LP_CUTOFF_MIN: float = 600.0
+
 # Cached base star-ambient amplitudes (captured once so we can scale them
 # during descent without compounding the scaling each frame).
 var _star_base_radiation_amp: float = 0.0
@@ -129,8 +149,9 @@ func _ready() -> void:
 	call_deferred("_auto_initialize")
 
 func _exit_tree() -> void:
-	# Ensure the underwater filter is never left on the bus when freed.
+	# Ensure filters are never left on the bus when freed.
 	_deactivate_underwater_filter()
+	_deactivate_atmosphere_filter()
 	_disconnect_signals()
 
 ## Resolves the PlanetDescentController autoload from the scene tree and
@@ -146,6 +167,7 @@ func _auto_initialize() -> void:
 func _process(delta: float) -> void:
 	if not _active:
 		return
+	_update_atmosphere_density_audio(delta)
 	_update_periodic_ambience(delta)
 
 # ==============================================================================
@@ -176,6 +198,9 @@ func set_active(active: bool) -> void:
 	else:
 		# Return to orbital baseline.
 		_deactivate_underwater_filter()
+		_deactivate_atmosphere_filter()
+		_atmosphere_density = 0.0
+		_atmosphere_density_target = 0.0
 		_apply_orbital_baseline()
 
 ## Manually sets the audio layer (clamped to the DescentAudioLayer enum).
@@ -220,6 +245,8 @@ func _connect_signals() -> void:
 		_descent_controller.entered_water.connect(_on_entered_water)
 	if not _descent_controller.is_connected("exited_water", _on_exited_water):
 		_descent_controller.exited_water.connect(_on_exited_water)
+	if _descent_controller.has_signal("atmosphere_density_changed") and not _descent_controller.is_connected("atmosphere_density_changed", _on_atmosphere_density_changed):
+		_descent_controller.atmosphere_density_changed.connect(_on_atmosphere_density_changed)
 
 func _disconnect_signals() -> void:
 	if _descent_controller == null:
@@ -236,6 +263,8 @@ func _disconnect_signals() -> void:
 		_descent_controller.entered_water.disconnect(_on_entered_water)
 	if _descent_controller.is_connected("exited_water", _on_exited_water):
 		_descent_controller.exited_water.disconnect(_on_exited_water)
+	if _descent_controller.has_signal("atmosphere_density_changed") and _descent_controller.is_connected("atmosphere_density_changed", _on_atmosphere_density_changed):
+		_descent_controller.atmosphere_density_changed.disconnect(_on_atmosphere_density_changed)
 
 # ==============================================================================
 # Audio Node Resolution
@@ -311,6 +340,11 @@ func _on_exited_water() -> void:
 		update_layer(_map_atmosphere_layer(atmo))
 	else:
 		update_layer(DescentAudioLayer.TROPOSPHERE)
+
+## Handler for PlanetDescentController.atmosphere_density_changed. Stores the
+## target density; the actual filter cutoff is smoothed in _process().
+func _on_atmosphere_density_changed(density: float) -> void:
+	_atmosphere_density_target = clampf(density, 0.0, 2.0)
 
 # ==============================================================================
 # Layer Mapping
@@ -714,6 +748,70 @@ func _deactivate_underwater_filter() -> void:
 	_underwater_lp_bus_idx = -1
 	_underwater_lp_effect_idx = -1
 	_underwater_filter_active = false
+
+# ==============================================================================
+# Atmosphere Density Audio (continuous lowpass + roar from descent density)
+# ==============================================================================
+
+## Smooths the atmospheric density toward the target and updates the density
+## lowpass filter cutoff each frame. Denser atmospheres (higher density) lower
+## the cutoff frequency (more muffled) and raise the resonance slightly for a
+## roaring quality. The filter is activated once density exceeds a small
+## threshold and deactivated when density returns to near-vacuum.
+func _update_atmosphere_density_audio(delta: float) -> void:
+	# If the descent controller exposes a density getter, poll it as a fallback
+	# so we stay in sync even if the signal was missed (e.g. late initialization).
+	if _descent_controller != null and _descent_controller.has_method("get_atmosphere_density"):
+		_atmosphere_density_target = clampf(float(_descent_controller.get_atmosphere_density()), 0.0, 2.0)
+	var smooth_t: float = clampf(delta * _ATMOSPHERE_DENSITY_SMOOTH_RATE, 0.0, 1.0)
+	_atmosphere_density = lerp(_atmosphere_density, _atmosphere_density_target, smooth_t)
+	# Activate the filter once density is meaningful; deactivate in vacuum.
+	if _atmosphere_density > 0.05:
+		_activate_atmosphere_filter()
+		_apply_atmosphere_filter_cutoff(_atmosphere_density)
+	else:
+		_deactivate_atmosphere_filter()
+
+## Activates the atmosphere density lowpass filter on the Master bus.
+func _activate_atmosphere_filter() -> void:
+	if _atmosphere_filter_active:
+		return
+	var bus_idx: int = AudioServer.get_bus_index("Master")
+	if bus_idx < 0:
+		return
+	if _atmosphere_lp == null:
+		_atmosphere_lp = AudioEffectLowPassFilter.new()
+		_atmosphere_lp.cutoff_hz = _ATMOSPHERE_LP_CUTOFF_MAX
+		_atmosphere_lp.resonance = 0.8
+	AudioServer.add_bus_effect(bus_idx, _atmosphere_lp)
+	_atmosphere_lp_bus_idx = bus_idx
+	_atmosphere_lp_effect_idx = AudioServer.get_bus_effect_count(bus_idx) - 1
+	_atmosphere_filter_active = true
+
+## Deactivates the atmosphere density lowpass filter.
+func _deactivate_atmosphere_filter() -> void:
+	if not _atmosphere_filter_active:
+		return
+	if _atmosphere_lp_bus_idx >= 0 and _atmosphere_lp_effect_idx >= 0:
+		var count: int = AudioServer.get_bus_effect_count(_atmosphere_lp_bus_idx)
+		if _atmosphere_lp_effect_idx < count:
+			AudioServer.remove_bus_effect(_atmosphere_lp_bus_idx, _atmosphere_lp_effect_idx)
+	_atmosphere_lp_bus_idx = -1
+	_atmosphere_lp_effect_idx = -1
+	_atmosphere_filter_active = false
+
+## Maps a density value (0..1+) to a lowpass cutoff frequency and resonance.
+## 0 = full-range (vacuum), 1 = sea-level muffle, >1 = deep underwater/gas-giant.
+func _apply_atmosphere_filter_cutoff(density: float) -> void:
+	if _atmosphere_lp == null:
+		return
+	# Exponential mapping so the cutoff drops sharply as density increases,
+	# giving a perceptually smooth muffle curve.
+	var t: float = clampf(density, 0.0, 2.0) / 2.0
+	var cutoff: float = lerpf(_ATMOSPHERE_LP_CUTOFF_MAX, _ATMOSPHERE_LP_CUTOFF_MIN, t * t)
+	_atmosphere_lp.cutoff_hz = cutoff
+	# Resonance rises slightly with density for a roaring pressure quality.
+	_atmosphere_lp.resonance = lerpf(0.8, 2.0, t)
 
 # ==============================================================================
 # Synth Parameter Helpers (direct parameter setting)

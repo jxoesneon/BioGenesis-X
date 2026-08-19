@@ -78,6 +78,9 @@ signal stall_warning(stall_factor: float)
 signal landing_assist_engaged(active: bool)
 signal surface_lock_engaged(locked: bool)
 signal gas_giant_pressure_warning(pressure_bar: float)
+## Emitted when the atmospheric density (0..1+) changes significantly during
+## descent. Consumed by DescentAudioController for audio muffling/roaring.
+signal atmosphere_density_changed(density: float)
 
 # ------------------------------------------------------------------------------
 # Tunable Parameters
@@ -122,6 +125,14 @@ signal gas_giant_pressure_warning(pressure_bar: float)
 @export_group("Transition Smoothing")
 @export var state_transition_blend_time: float = 0.6 ## seconds for physics blend
 
+@export_group("Atmosphere Scattering")
+## Rate at which atmosphere intensity/blend/density smooth toward their
+## per-state targets (higher = snappier). Applied each physics frame.
+@export var atmosphere_smoothing_rate: float = 2.5
+## Density change threshold (0..1) above which atmosphere_density_changed is
+## re-emitted, to avoid flooding signal consumers every physics frame.
+@export var atmosphere_density_emit_threshold: float = 0.02
+
 # ------------------------------------------------------------------------------
 # Internal State
 # ------------------------------------------------------------------------------
@@ -143,6 +154,24 @@ var _distance_to_planet_center_m: float = 0.0
 
 # Descent progress (0.0 = orbit, 1.0 = surface) for shader uniforms
 var _descent_progress: float = 0.0
+
+# Atmosphere scattering drive (0..1). Tracks how much near-field O'Neil
+# scattering should be visible, blended smoothly each physics frame toward a
+# per-state target. Fed to ProceduralPlanet.set_atmosphere_intensity().
+var _atmosphere_intensity: float = 0.0
+# Far/near-field blend (0..1). 0 = far-field EFA dominates (space), 1 =
+# near-field O'Neil dominates (atmosphere/surface). Fed to
+# ProceduralPlanet.set_atmosphere_blend().
+var _atmosphere_blend: float = 0.0
+# Atmospheric density (0..1+) reported to DescentAudioController for audio
+# muffling. Derived from descent progress and archetype pressure.
+var _atmosphere_density: float = 0.0
+
+# Star (sun) world position for atmosphere scattering sun-direction updates.
+# Set via set_star_position(); defaults to a direction along +Z so the
+# atmosphere has a valid light vector before the star system manager resolves.
+var _star_position: Vector3 = Vector3(0.0, 0.0, 1.0e9)
+var _has_star_position: bool = false
 
 # Target planet
 var _target_planet: Node3D = null
@@ -318,6 +347,7 @@ func _physics_process(delta: float) -> void:
 	_update_landing_assist(delta)
 	_update_takeoff_assist(delta)
 	_update_descent_progress()
+	_update_atmosphere_descent(delta)
 	_evaluate_state_transitions()
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -366,6 +396,9 @@ func clear_target_planet() -> void:
 	_current_heating = 0.0
 	_current_stall_factor = 0.0
 	_last_emitted_stall_factor = 0.0
+	_atmosphere_intensity = 0.0
+	_atmosphere_blend = 0.0
+	_atmosphere_density = 0.0
 	_set_state(DescentState.ORBITAL)
 
 ## Returns whether a target planet is currently set.
@@ -412,6 +445,26 @@ func get_vertical_speed_ms() -> float:
 ## Returns normalized descent progress (0.0 = orbit, 1.0 = surface) for shaders.
 func get_descent_progress() -> float:
 	return _descent_progress
+
+## Returns the current near-field atmosphere scattering intensity (0..1).
+func get_atmosphere_intensity() -> float:
+	return _atmosphere_intensity
+
+## Returns the current far/near-field atmosphere blend (0..1).
+func get_atmosphere_blend() -> float:
+	return _atmosphere_blend
+
+## Returns the current atmospheric density (0..1+) for audio/visual feedback.
+## Derived from descent progress and archetype surface pressure.
+func get_atmosphere_density() -> float:
+	return _atmosphere_density
+
+## Sets the star (sun) world-space position so the atmosphere scattering sun
+## direction can be updated each frame relative to the target planet. Called by
+## the star system manager / UniverseManager when a system loads.
+func set_star_position(star_world_pos: Vector3) -> void:
+	_star_position = star_world_pos
+	_has_star_position = true
 
 ## Returns the current descent state.
 func get_current_state() -> int:
@@ -853,6 +906,94 @@ func _update_descent_progress() -> void:
 			_descent_progress = 0.0
 
 # ------------------------------------------------------------------------------
+# Atmosphere Scattering Drive (descent-state -> shader uniforms)
+# ------------------------------------------------------------------------------
+# Computes per-state target intensity/blend/density, smooths the current values
+# toward them, and pushes the result to the target planet's atmosphere shader.
+# Also updates the sun direction from the star position relative to the planet.
+func _update_atmosphere_descent(delta: float) -> void:
+	if not _has_target or _target_planet == null or not is_instance_valid(_target_planet):
+		return
+	# --- Per-state targets -------------------------------------------------
+	var target_intensity: float = 0.0
+	var target_blend: float = 0.0
+	match _current_state:
+		DescentState.ORBITAL:
+			# Space: far-field EFA visible, near-field O'Neil at low intensity.
+			target_intensity = 0.15
+			target_blend = 0.0
+		DescentState.EXOSPHERE_ENTRY:
+			# Entering atmosphere: begin blending far->near, raise O'Neil.
+			target_intensity = 0.45
+			target_blend = 0.25
+		DescentState.THERMOSPHERE:
+			# Thin atmosphere: more near-field, haze building.
+			target_intensity = 0.70
+			target_blend = 0.55
+		DescentState.TROPOSPHERE:
+			# Full atmosphere: near-field O'Neil dominant, density affects visibility.
+			target_intensity = 1.0
+			target_blend = 0.85
+		DescentState.SURFACE_APPROACH:
+			# Near surface: full atmosphere, sky dome, horizon glow.
+			target_intensity = 1.0
+			target_blend = 1.0
+		DescentState.LANDED:
+			# On surface: full atmosphere, sky dome visible.
+			target_intensity = 1.0
+			target_blend = 1.0
+		DescentState.ON_FOOT:
+			target_intensity = 1.0
+			target_blend = 1.0
+		DescentState.SUBMERSIBLE:
+			# Underwater: full near-field (sky still visible through water).
+			target_intensity = 1.0
+			target_blend = 1.0
+		DescentState.ABORT_ASCENT:
+			# Climbing back out: blend reverses with altitude.
+			var alt_frac: float = clampf(_altitude_m / maxf(_atmosphere_thickness_m, 1.0), 0.0, 1.0)
+			target_intensity = lerp(1.0, 0.15, alt_frac)
+			target_blend = lerp(1.0, 0.0, alt_frac)
+		DescentState.GAS_GIANT_DESCENT:
+			# Endless deep descent: full near-field, dense.
+			target_intensity = 1.0
+			target_blend = 1.0
+		_:
+			target_intensity = 0.15
+			target_blend = 0.0
+	# --- Smooth toward targets --------------------------------------------
+	var smooth_t: float = clampf(delta * atmosphere_smoothing_rate, 0.0, 1.0)
+	_atmosphere_intensity = lerp(_atmosphere_intensity, target_intensity, smooth_t)
+	_atmosphere_blend = lerp(_atmosphere_blend, target_blend, smooth_t)
+	# --- Density (0..1+) from descent progress + archetype pressure --------
+	var base_density: float = _descent_progress
+	if _profile != null:
+		# Dense atmospheres (gas giants, molten, radiotrophic) reach higher density.
+		base_density *= clampf(_profile.pressure_surface_bar, 0.0, 4.0)
+	# Underwater adds density above 1.0 for deeper muffling.
+	if _current_state == DescentState.SUBMERSIBLE:
+		base_density = 1.0 + clampf(_underwater_depth_m / maxf(max_dive_depth_m, 1.0), 0.0, 1.0)
+	elif _current_state == DescentState.GAS_GIANT_DESCENT:
+		base_density = 1.0 + clampf(_gas_giant_pressure_bar / maxf(gas_giant_max_pressure_bar, 1.0), 0.0, 1.0)
+	var prev_density: float = _atmosphere_density
+	_atmosphere_density = lerp(_atmosphere_density, base_density, smooth_t)
+	# --- Push to the target planet ----------------------------------------
+	if _target_planet.has_method("set_atmosphere_intensity"):
+		_target_planet.set_atmosphere_intensity(_atmosphere_intensity)
+	if _target_planet.has_method("set_atmosphere_blend"):
+		_target_planet.set_atmosphere_blend(_atmosphere_blend)
+	# --- Update sun direction from star position --------------------------
+	if _has_star_position:
+		var planet_pos: Vector3 = _target_planet.global_position if _target_planet is Node3D else Vector3.ZERO
+		var sun_dir: Vector3 = (_star_position - planet_pos).normalized()
+		if is_finite(sun_dir.length()) and sun_dir.length() > 0.001:
+			if _target_planet.has_method("set_sun_direction"):
+				_target_planet.set_sun_direction(sun_dir)
+	# --- Emit density change signal (throttled) ---------------------------
+	if absf(_atmosphere_density - prev_density) >= atmosphere_density_emit_threshold:
+		atmosphere_density_changed.emit(_atmosphere_density)
+
+# ------------------------------------------------------------------------------
 # Integration Hooks
 # ------------------------------------------------------------------------------
 func _resolve_integration_hooks() -> void:
@@ -916,6 +1057,9 @@ func _reset_descent_state() -> void:
 	_current_stall_factor = 0.0
 	_last_emitted_stall_factor = 0.0
 	_descent_progress = 0.0
+	_atmosphere_intensity = 0.0
+	_atmosphere_blend = 0.0
+	_atmosphere_density = 0.0
 
 func _update_vertical_speed(delta: float) -> void:
 	if delta <= 0.0:

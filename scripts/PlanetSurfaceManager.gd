@@ -79,6 +79,8 @@ var _weather_particles: GPUParticles3D = null
 var _weather_process_mat: ParticleProcessMaterial = null
 var _sky_material: ProceduralSkyMaterial = null
 var _terrain_material: Material = null
+# Boujie Water Shader ocean surface (only spawned for ocean-bearing archetypes).
+var _ocean_surface_manager: OceanSurfaceManager = null
 
 # Archetype visual profile.
 class ArchetypeProfile:
@@ -240,6 +242,7 @@ func configure_for_archetype(archetype: int, p_seed: int, radius_m: float) -> vo
 	_build_sky_and_environment()
 	_build_sun_and_moon()
 	_build_weather()
+	_build_ocean_surface()
 	_configured = true
 	surface_ready.emit()
 
@@ -255,6 +258,7 @@ func _clear_children() -> void:
 	_weather_process_mat = null
 	_sky_material = null
 	_terrain_material = null
+	_ocean_surface_manager = null
 
 # ------------------------------------------------------------------------------
 # Terrain Surface (archetype shader)
@@ -310,6 +314,39 @@ func _get_sun_direction() -> Vector3:
 		if forward.length_squared() > 1e-6:
 			return forward.normalized()
 	return Vector3.UP
+
+# ------------------------------------------------------------------------------
+# Boujie Water Shader Ocean Surface (ocean archetypes only)
+# ------------------------------------------------------------------------------
+## Spawns the OceanSurfaceManager for ocean-bearing archetypes (Terran Oceanic
+## and Ice worlds with liquid oceans). For non-ocean archetypes this is a no-op.
+## The ocean plane is positioned at sea level relative to the terrain sphere and
+## fades in as the player descends through the atmosphere.
+func _build_ocean_surface() -> void:
+	if not OceanSurfaceManager.archetype_has_ocean(_archetype):
+		return
+	_ocean_surface_manager = OceanSurfaceManager.new()
+	_ocean_surface_manager.name = "BoujieOceanSurface"
+	add_child(_ocean_surface_manager)
+	# Derive planet physical properties for the ocean configuration.
+	var gravity: float = 9.81
+	var wind_speed: float = 5.0
+	var temp_k: float = 288.0
+	# Per-archetype physical defaults.
+	match _archetype:
+		Archetype.TERRAN_OCEANIC:
+			gravity = 9.81
+			wind_speed = 6.0
+			temp_k = 288.0
+		Archetype.ICE_WORLD:
+			gravity = 9.81
+			wind_speed = 3.0
+			temp_k = 223.0
+	# Sea level ratio: ocean planets have water at ~70% of the terrain amplitude
+	# above the base surface. Default 0.0 places water at the terrain sphere.
+	var sea_ratio: float = 0.0
+	_ocean_surface_manager.sea_level_ratio = sea_ratio
+	_ocean_surface_manager.configure(_archetype, _seed, _radius_m, gravity, wind_speed, temp_k)
 
 # ------------------------------------------------------------------------------
 # Sky & Environment
@@ -493,6 +530,9 @@ func enter_surface(player_pos: Vector3) -> Vector3:
 	set_process(true)
 	if _weather_particles != null:
 		_weather_particles.emitting = true
+	# Activate the Boujie ocean surface for ocean-bearing archetypes.
+	if _ocean_surface_manager != null and is_instance_valid(_ocean_surface_manager):
+		_ocean_surface_manager.activate()
 	var to_center: Vector3 = global_position - player_pos
 	var dist: float = to_center.length()
 	if dist < 0.001:
@@ -504,6 +544,9 @@ func exit_surface() -> void:
 	set_process(false)
 	if _weather_particles != null:
 		_weather_particles.emitting = false
+	# Deactivate the Boujie ocean surface (hides the water plane immediately).
+	if _ocean_surface_manager != null and is_instance_valid(_ocean_surface_manager):
+		_ocean_surface_manager.deactivate()
 	weather_changed.emit(WeatherType.NONE, 0.0)
 
 # ------------------------------------------------------------------------------
@@ -514,6 +557,10 @@ func apply_floating_origin(offset: Vector3) -> void:
 	for c: Node in get_children():
 		if c is Node3D:
 			(c as Node3D).global_position += offset
+	# The Boujie ocean plane follows the player independently; propagate the
+	# origin shift so it stays aligned with the terrain during rebase.
+	if _ocean_surface_manager != null and is_instance_valid(_ocean_surface_manager):
+		_ocean_surface_manager.apply_floating_origin(offset)
 
 # ------------------------------------------------------------------------------
 # Accessors
@@ -535,6 +582,14 @@ func get_archetype() -> int:
 
 func get_planet_radius() -> float:
 	return _radius_m
+
+## Returns the Boujie OceanSurfaceManager (or null if this archetype has no ocean).
+func get_ocean_surface_manager() -> OceanSurfaceManager:
+	return _ocean_surface_manager
+
+## Returns true if the current archetype hosts a Boujie water ocean.
+func has_ocean() -> bool:
+	return _ocean_surface_manager != null and is_instance_valid(_ocean_surface_manager) and _ocean_surface_manager.has_ocean()
 
 ## Sets weather intensity (0..1) and adjusts particle count proportionally.
 func set_weather_intensity(intensity: float) -> void:

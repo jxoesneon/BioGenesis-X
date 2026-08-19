@@ -38,8 +38,13 @@ GalacticNoiseField="*res://scripts/GalacticNoiseField.gd"
 LoadingScreenManager="*res://scripts/LoadingScreenManager.gd"
 CombatVFX="*res://scripts/CombatVFX.gd"
 CombatStats="*res://scripts/CombatStats.gd"
+NeuralRegen="*res://scripts/NeuralRegen.gd"
+DebugManager="*res://scripts/DebugManager.gd"
 DialogueManager="*res://addons/dialogue_manager/dialogue_manager.gd"
+QuestWeaverGlobal="*res://addons/quest_weaver/core/quest_weaver_global.gd"
 QuestWeaverServices="*res://addons/quest_weaver/core/quest_weaver_services.gd"
+QuestWeaverGameState="*res://addons/quest_weaver/core/quest_weaver_game_state.gd"
+QuestManager="*res://scripts/QuestManager.gd"
 
 [display]
 
@@ -64,6 +69,10 @@ abort_descent={
 "events": [Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":-1,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":4194305,"physical_keycode":0,"key_label":0,"unicode":0,"location":0,"echo":false,"script":null)
 ]
 }
+
+[internationalization]
+
+locale/translations_pot_files=PackedStringArray("res://dialogue/covenant_symbiosis.dialogue")
 
 [physics]
 
