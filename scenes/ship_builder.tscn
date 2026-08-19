@@ -110,7 +110,9 @@ current = true
 [node name="ProceduralBioMesh" type="MeshInstance3D" parent="."]
 script = ExtResource("1_biomesh")
 
-[node name="UI" type="Control" parent="."]
+[node name="UILayer" type="CanvasLayer" parent="."]
+
+[node name="UI" type="Control" parent="UILayer"]
 layout_mode = 3
 anchors_preset = 15
 anchor_right = 1.0

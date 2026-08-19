@@ -19,7 +19,9 @@ glow_hdr_threshold = 0.5
 [node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=1418648894]
 environment = SubResource("Environment_mainmenu")
 
-[node name="MainMenuUI" type="Control" parent="." unique_id=1256635596]
+[node name="UILayer" type="CanvasLayer" parent="."]
+
+[node name="MainMenuUI" type="Control" parent="UILayer" unique_id=1256635596]
 layout_mode = 3
 anchors_preset = 15
 anchor_right = 1.0
