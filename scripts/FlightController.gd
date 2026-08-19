@@ -374,8 +374,11 @@ func _handle_wave_engine(delta: float) -> void:
 
 			# Select target using forward cone — picks whatever you're aiming at through the reticle.
 			# Once locked, don't re-scan — prevents target-switching spin.
+			# If no forward target found, fall back to nearest celestial body (omnidirectional).
 			if not wave_target_node or not is_instance_valid(wave_target_node):
 				_update_wave_navigation(delta, false)
+			if not wave_target_node or not is_instance_valid(wave_target_node):
+				_update_wave_navigation(delta, true)
 			if wave_target_node and is_instance_valid(wave_target_node):
 				_auto_align_to_target(delta, wave_target_node, 2.0)
 
@@ -425,17 +428,23 @@ func _handle_wave_engine(delta: float) -> void:
 				planet_radius = wave_target_node.radius_m
 			var safe_dist := maxf(wave_safe_disengage_distance, planet_radius * 3.0)
 
-			# Auto-drop safe threshold
-			if dist <= safe_dist:
+			# Auto-drop safe threshold — also catch overshoot: if we'd cross safe_dist
+			# this frame at current speed, drop now to prevent blowing past the planet.
+			var frame_travel := wave_current_speed * delta
+			if dist <= safe_dist or dist - frame_travel < safe_dist:
+				# Snap to safe distance along approach vector
+				var approach_dir := (t_pos - my_pos).normalized()
+				global_position = t_pos - approach_dir * safe_dist
 				disengage_wave_engine()
 				return
 
-			# Kinematic braking: v² = u² + 2as → max safe speed = sqrt(2 * decel * remaining_distance)
-			# remaining_distance = dist - safe_dist (distance we have to brake before auto-drop)
-			# This guarantees the ship can always decelerate to max_boost_speed before reaching the target.
+			# Dynamic kinematic braking: compute required braking distance from CURRENT speed.
+			# v² = u² + 2as → required_distance = (v² - v_target²) / (2 * decel)
+			# This ensures braking starts early enough at any speed, not just near the planet.
 			var brake_distance := dist - safe_dist
-			if brake_distance < planet_radius * 10.0: # Start braking within 10x planet radius
-				# Maximum speed that allows decelerating to max_boost_speed in the remaining distance
+			var required_brake_dist := (wave_current_speed * wave_current_speed) / (2.0 * wave_acceleration)
+			if brake_distance <= required_brake_dist + planet_radius * 2.0:
+				# Need to brake now — compute max safe speed for remaining distance
 				var safe_speed := sqrt(2.0 * wave_acceleration * brake_distance) + max_boost_speed
 				target_cruise_speed = clampf(safe_speed, max_boost_speed, wave_max_speed)
 
