@@ -60,7 +60,10 @@ func _on_resized() -> void:
 
 func _locate_bio_manager() -> void:
 	if not _bio_manager_ref:
-		_bio_manager_ref = get_tree().root.get_node("BioManager")
+		# Safe lookup — BioManager may not exist in editor preview or test scenes.
+		var root := get_tree().root if get_tree() else null
+		if root and root.has_node("BioManager"):
+			_bio_manager_ref = root.get_node("BioManager")
 
 func _init_particles() -> void:
 	_particle_positions.clear()

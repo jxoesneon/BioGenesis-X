@@ -1087,7 +1087,7 @@ func _setup_indicators():
 	visited_mat.emission_energy_multiplier = 3.0
 	visited_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	visited_mmi.material_override = visited_mat
-	visited_mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_OFF
+	visited_mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(visited_mmi)
 	route_tracer_instance.hide()
 	add_child(route_tracer_instance)
