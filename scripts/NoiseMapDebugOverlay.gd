@@ -88,7 +88,7 @@ func _create_planes() -> void:
 		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 		mat.no_depth_test = true  # Always visible regardless of depth
-		mat.cull_mode = BaseMaterial3D.CULL_MODE_DISABLED
+		mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 		plane.material_override = mat
 
 		add_child(plane)
