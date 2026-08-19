@@ -120,6 +120,8 @@ var current_g_force: float = 1.0 # 1G baseline
 var is_boosting: bool = false
 var recharge_timer: float = 0.0
 var camera_shake_intensity: float = 0.0
+var camera_shake_multiplier: float = 1.0  # Accessibility: scales shake (0=off, 1=full)
+var invert_y: bool = false  # Accessibility: invert mouse Y axis
 var hull_integrity: float = 100.0  # Hull health [0-100], drives audio DTI
 var bio_shield: float = 100.0  # Bio-shield energy [0-100], absorbs damage before hull
 var bio_shield_max: float = 100.0
@@ -707,12 +709,13 @@ func _handle_rotation(delta: float) -> void:
 
 	# Mouse input for Pitch and Yaw (No Man's Sky Direct & Tethered Flight Model)
 	if mouse_control_enabled:
+		var y_sign: float = -1.0 if invert_y else 1.0
 		if mouse_delta.length_squared() > 0.0:
-			pitch_input -= mouse_delta.y * mouse_sensitivity
+			pitch_input += y_sign * mouse_delta.y * mouse_sensitivity
 			yaw_input -= mouse_delta.x * mouse_sensitivity
 			mouse_delta = Vector2.ZERO
 		elif mouse_flight_cursor.length_squared() > 0.001:
-			pitch_input -= mouse_flight_cursor.y * 1.5
+			pitch_input += y_sign * mouse_flight_cursor.y * 1.5
 			yaw_input -= mouse_flight_cursor.x * 1.5
 		
 		# Smooth spring return to center for floating HUD reticle
@@ -1266,13 +1269,13 @@ func _update_camera_effects(delta: float) -> void:
 		var target_fpv_pos := fpv_base_pos + lag_offset
 		fpv_camera.transform.origin = fpv_camera.transform.origin.lerp(target_fpv_pos, delta * 12.0)
 
-	# Camera Shake
-	if camera_shake_intensity > 0.0:
+	# Camera Shake (scaled by accessibility multiplier)
+	if camera_shake_intensity > 0.0 and camera_shake_multiplier > 0.0:
 		var offset := Vector3(
 			randf_range(-1.0, 1.0),
 			randf_range(-1.0, 1.0),
 			randf_range(-1.0, 1.0)
-		) * camera_shake_intensity * max_camera_shake_offset
+		) * camera_shake_intensity * max_camera_shake_offset * camera_shake_multiplier
 		camera_node.transform.origin += offset * delta * 10.0
 		camera_shake_intensity = move_toward(camera_shake_intensity, 0.0, delta * camera_shake_decay)
 

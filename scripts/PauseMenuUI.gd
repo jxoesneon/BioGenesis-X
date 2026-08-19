@@ -129,7 +129,40 @@ func _process(delta: float) -> void:
 		queue_redraw()
 
 func _draw() -> void:
-	pass
+	# Biopunk decorative background: animated organic pulse rings + bio-grid
+	var sz: Vector2 = size
+	var center: Vector2 = sz * 0.5
+	var t: float = _animation_time
+
+	# 1. Dark vignette overlay — deeper at edges
+	var edge_fade: float = minf(sz.x, sz.y) * 0.45
+	for i in range(6):
+		var alpha: float = 0.04 * (1.0 - float(i) / 6.0)
+		draw_rect(Rect2(0, 0, sz.x, sz.y), Color(0.0, 0.05, 0.03, alpha), true)
+
+	# 2. Animated organic pulse rings — bioluminescent teal-green
+	for ring in range(4):
+		var phase: float = t * 0.4 + ring * 0.7
+		var radius: float = 80.0 + ring * 120.0 + sin(phase) * 20.0
+		var alpha: float = 0.08 + sin(phase * 1.3) * 0.04
+		var col: Color = Color(0.0, 0.8, 0.6, alpha)
+		draw_arc(center, radius, 0, TAU, 64, col, 1.5)
+
+	# 3. Bio-grid — subtle hexagonal pattern suggesting cellular structure
+	var grid_spacing: float = 60.0
+	var grid_alpha: float = 0.03 + sin(t * 0.5) * 0.01
+	var grid_col: Color = Color(0.0, 0.6, 0.5, grid_alpha)
+	var ox: float = fmod(t * 8.0, grid_spacing)
+	for x in range(int(-grid_spacing + ox), int(sz.x + grid_spacing), int(grid_spacing)):
+		draw_line(Vector2(x, 0), Vector2(x, sz.y), grid_col, 1.0)
+	for y in range(0, int(sz.y + grid_spacing), int(grid_spacing)):
+		draw_line(Vector2(0, y), Vector2(sz.x, y), grid_col, 1.0)
+
+	# 4. Central glow — bioluminescent core behind menu
+	var core_radius: float = 200.0 + sin(t * 0.8) * 15.0
+	var core_alpha: float = 0.06 + sin(t * 1.2) * 0.02
+	draw_circle(center, core_radius, Color(0.0, 0.9, 0.7, core_alpha))
+	draw_circle(center, core_radius * 0.6, Color(0.0, 1.0, 0.8, core_alpha * 1.5))
 
 func _create_menu_button(txt: String, callback: Callable) -> Button:
 	var btn := Button.new()

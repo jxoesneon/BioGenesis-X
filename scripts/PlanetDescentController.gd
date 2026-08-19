@@ -567,7 +567,7 @@ func _enter_state(state: int) -> void:
 		DescentState.GAS_GIANT_DESCENT:
 			_set_layer(AtmosphereLayer.GAS_GIANT_DEEP)
 		_:
-			pass
+			push_warning("[PlanetDescentController] Unknown descent state entered: %d" % state)
 
 func _exit_state(state: int) -> void:
 	match state:
@@ -586,7 +586,7 @@ func _exit_state(state: int) -> void:
 		DescentState.ABORT_ASCENT:
 			_takeoff_assist_active = false
 		_:
-			pass
+			push_warning("[PlanetDescentController] Unknown descent state exited: %d" % state)
 
 func _set_layer(new_layer: int) -> void:
 	if new_layer == _current_layer:
@@ -659,7 +659,7 @@ func _evaluate_normal_transitions() -> void:
 			if not _is_underwater:
 				_set_state(DescentState.TROPOSPHERE)
 		_:
-			pass
+			push_warning("[PlanetDescentController] Unknown state in transition evaluation: %d" % _current_state)
 
 func _evaluate_gas_giant_transitions() -> void:
 	match _current_state:
@@ -690,7 +690,7 @@ func _evaluate_gas_giant_transitions() -> void:
 			if _altitude_m > _atmosphere_thickness_m * exosphere_entry_multiplier:
 				_set_state(DescentState.ORBITAL)
 		_:
-			pass
+			push_warning("[PlanetDescentController] Unknown gas giant state in transition: %d" % _current_state)
 
 # ------------------------------------------------------------------------------
 # Heating & Stall

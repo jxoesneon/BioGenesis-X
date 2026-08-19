@@ -297,7 +297,7 @@ func _poll_resource_loading() -> void:
 			_resource_progress = 1.0
 			_stage = Stage.SCENE_SWAP
 		_:
-			pass
+			push_warning("[LoadingScreenManager] Unknown ResourceLoader status: %d" % status)
 
 # ==============================================================================
 # Stage: Scene Swap

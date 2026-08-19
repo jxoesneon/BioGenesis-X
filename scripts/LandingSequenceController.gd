@@ -462,7 +462,7 @@ func _update_landing_sequence(delta: float) -> void:
 		LandingPhase.EXITING:
 			pass # Handled by exit/entry update.
 		_:
-			pass
+			push_warning("[LandingSequenceController] Unknown landing phase in _process_landing: %d" % _landing_phase)
 
 	if _landing_phase_progress >= 1.0 and _landing_phase != LandingPhase.READY and _landing_phase != LandingPhase.EXITING:
 		_advance_landing_phase()
@@ -599,7 +599,7 @@ func _update_takeoff_sequence(delta: float) -> void:
 		TakeoffPhase.CLEAR:
 			_process_clear(_takeoff_phase_progress)
 		_:
-			pass
+			push_warning("[LandingSequenceController] Unknown takeoff phase in _process_takeoff: %d" % _takeoff_phase)
 
 	if _takeoff_phase_progress >= 1.0:
 		_advance_takeoff_phase()
@@ -660,7 +660,7 @@ func _advance_takeoff_phase() -> void:
 		TakeoffPhase.CLEAR:
 			_complete_takeoff()
 		_:
-			pass
+			push_warning("[LandingSequenceController] Unknown takeoff phase in _advance_takeoff: %d" % _takeoff_phase)
 	if _takeoff_phase != TakeoffPhase.IDLE:
 		takeoff_phase_changed.emit(int(_takeoff_phase), _takeoff_phase_name(_takeoff_phase))
 

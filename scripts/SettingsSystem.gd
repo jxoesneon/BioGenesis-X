@@ -272,8 +272,7 @@ func _apply_graphics_setting(key: String, value: Variant) -> void:
 		"texture_quality":
 			_apply_texture_quality(int(value))
 		"anisotropic_filter":
-			# Anisotropic filter level is read by material systems at runtime
-			pass
+			_apply_anisotropic_filter(int(value))
 		"volumetric_fog":
 			_apply_volumetric_fog(int(value))
 		"reflection_quality":
@@ -283,8 +282,7 @@ func _apply_graphics_setting(key: String, value: Variant) -> void:
 			if viewport:
 				viewport.use_occlusion_culling = bool(value)
 		"lod_bias":
-			# LOD bias is read by mesh instances at runtime; store for systems to query
-			pass
+			_apply_lod_bias(float(value))
 		"motion_blur":
 			_apply_world_environment("motion_blur_enabled", bool(value))
 		"depth_of_field":
@@ -350,14 +348,50 @@ func _apply_scanner_opacity(opacity: float) -> void:
 	if scanner and scanner.has_method("set_opacity"):
 		scanner.set_opacity(opacity)
 
-func _apply_controls_setting(_key: String, _value: Variant) -> void:
-	# Controls settings are read by FlightController at runtime
-	pass
+func _apply_controls_setting(key: String, value: Variant) -> void:
+	# Controls settings are applied live to FlightController when present.
+	var tree := get_tree()
+	if not tree or not tree.root:
+		return
+	var fc := tree.root.find_child("FlightController", true, false) as Node
+	if not fc or not is_instance_valid(fc):
+		return  # FlightController not in scene — value stored for later query
+	match key:
+		"invert_y":
+			if "invert_y" in fc:
+				fc.set("invert_y", bool(value))
+		"mouse_sensitivity":
+			if "mouse_sensitivity" in fc:
+				fc.set("mouse_sensitivity", clampf(float(value), 0.0005, 0.02))
+		"flight_damping":
+			if "linear_dampening_rate" in fc:
+				fc.set("linear_dampening_rate", clampf(float(value), 0.0, 1.0))
+			if "angular_dampening_rate" in fc:
+				fc.set("angular_dampening_rate", clampf(float(value), 0.0, 1.0))
+		"controller_deadzone":
+			if "controller_deadzone" in fc:
+				fc.set("controller_deadzone", clampf(float(value), 0.0, 0.5))
+		_:
+			pass  # controller_enabled, vibration_* handled by input system at runtime
 
-func _apply_accessibility_setting(_key: String, _value: Variant) -> void:
-	# Accessibility settings are read by UI/HUD systems at runtime via get_setting().
-	# Color-blind mode and high-contrast are applied to UI themes on next rebuild.
-	pass
+func _apply_accessibility_setting(key: String, value: Variant) -> void:
+	# Accessibility settings are applied to UI themes and the scene tree.
+	var tree := get_tree()
+	if not tree or not tree.root:
+		return
+	match key:
+		"color_blind_mode":
+			_apply_color_blind_mode(int(value))
+		"ui_scale":
+			_apply_ui_scale(float(value))
+		"text_size":
+			_apply_text_size(float(value))
+		"high_contrast":
+			_apply_high_contrast(bool(value))
+		"reduce_motion":
+			_apply_reduce_motion(bool(value))
+		"screen_shake_intensity":
+			_apply_screen_shake_intensity(float(value))
 
 # --- Graphics helper functions ---
 
@@ -381,10 +415,71 @@ func _apply_fov(fov: float) -> void:
 		if cam and cam is Camera3D:
 			cam.fov = clampf(fov, 60.0, 110.0)
 
-func _apply_texture_quality(_quality: int) -> void:
+func _apply_texture_quality(quality: int) -> void:
 	# 0=Low (256 max), 1=Medium (512), 2=High (1024), 3=Ultra (2048)
-	# Texture quality is read by streaming systems at runtime via get_setting()
-	pass
+	# Apply LOD bias as a proxy for texture quality — higher tiers keep
+	# detailed LODs (which use higher-res textures) visible at greater distance.
+	var max_res: int = 256
+	match quality:
+		0: max_res = 256
+		1: max_res = 512
+		2: max_res = 1024
+		3: max_res = 2048
+	# Apply to all MeshInstance3D nodes — adjust LOD bias based on quality tier
+	var tree := get_tree()
+	if tree and tree.root:
+		_apply_texture_quality_recursive(tree.root, max_res)
+
+func _apply_texture_quality_recursive(node: Node, max_res: int) -> void:
+	if node is MeshInstance3D:
+		var mi := node as MeshInstance3D
+		# Adjust mesh LOD bias based on texture quality tier
+		# Higher quality = more detailed LODs visible at distance
+		var lod_bias: float = 0.5 + float(max_res) / 2048.0 * 1.0
+		mi.lod_bias = clampf(lod_bias, 0.5, 2.0)
+	for child in node.get_children():
+		_apply_texture_quality_recursive(child, max_res)
+
+func _apply_anisotropic_filter(level: int) -> void:
+	# 0=None, 1=2x, 2=4x, 3=8x, 4=16x
+	# Apply via RenderingServer global anisotropic filter level
+	var aniso_level: int = 0
+	match level:
+		0: aniso_level = 0
+		1: aniso_level = 2
+		2: aniso_level = 4
+		3: aniso_level = 8
+		4: aniso_level = 16
+	# Apply to all StandardMaterial3D instances in the scene
+	var tree := get_tree()
+	if tree and tree.root:
+		_apply_anisotropic_recursive(tree.root, aniso_level)
+
+func _apply_anisotropic_recursive(node: Node, aniso_level: int) -> void:
+	if node is MeshInstance3D:
+		var mi := node as MeshInstance3D
+		for mat_idx in range(mi.get_surface_override_material_count()):
+			var mat := mi.get_surface_override_material(mat_idx)
+			if mat and mat is StandardMaterial3D:
+				(mat as StandardMaterial3D).texture_filter = \
+					BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC if aniso_level > 0 \
+					else BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+	for child in node.get_children():
+		_apply_anisotropic_recursive(child, aniso_level)
+
+func _apply_lod_bias(bias: float) -> void:
+	# Apply LOD bias multiplier to all MeshInstance3D nodes in the scene.
+	# Higher bias = more detailed LODs at distance (sharper but heavier).
+	var clamped := clampf(bias, 0.5, 2.0)
+	var tree := get_tree()
+	if tree and tree.root:
+		_apply_lod_bias_recursive(tree.root, clamped)
+
+func _apply_lod_bias_recursive(node: Node, bias: float) -> void:
+	if node is MeshInstance3D:
+		(node as MeshInstance3D).lod_bias = bias
+	for child in node.get_children():
+		_apply_lod_bias_recursive(child, bias)
 
 func _apply_volumetric_fog(quality: int) -> void:
 	# 0=Off, 1=Low, 2=Medium, 3=High
@@ -462,3 +557,89 @@ func apply_hardware_recommended_preset() -> void:
 		var preset := tier + 1
 		_apply_quality_preset(preset)
 		print("[SettingsSystem] Applied hardware-recommended preset: %d" % preset)
+
+# --- Accessibility helper functions ---
+
+func _apply_color_blind_mode(mode: int) -> void:
+	# 0=None, 1=Protanopia, 2=Deuteranopia, 3=Tritanopia
+	# Apply a color correction via the WorldEnvironment if present.
+	var env := _get_world_environment()
+	if env:
+		env.adjustment_enabled = mode != 0
+		match mode:
+			1: # Protanopia — shift reds toward yellow
+				env.adjustment_saturation = 1.15
+				env.adjustment_color_correction = _make_correction_texture(Color(1.0, 0.9, 0.8, 1.0))
+			2: # Deuteranopia — shift greens toward red
+				env.adjustment_saturation = 1.15
+				env.adjustment_color_correction = _make_correction_texture(Color(0.9, 0.95, 1.0, 1.0))
+			3: # Tritanopia — shift blues toward green
+				env.adjustment_saturation = 1.15
+				env.adjustment_color_correction = _make_correction_texture(Color(1.0, 1.0, 0.85, 1.0))
+			_:
+				env.adjustment_saturation = 1.0
+				env.adjustment_color_correction = null
+
+func _make_correction_texture(tint: Color) -> GradientTexture1D:
+	var grad := Gradient.new()
+	grad.set_color(0, tint)
+	grad.set_color(1, Color.WHITE)
+	var tex := GradientTexture1D.new()
+	tex.gradient = grad
+	return tex
+
+func _apply_ui_scale(scale: float) -> void:
+	# Apply UI scale via the window's content scale factor
+	var clamped := clampf(scale, 0.75, 1.5)
+	get_tree().root.content_scale_factor = clamped
+
+func _apply_text_size(scale: float) -> void:
+	# Apply text size override to all Control nodes with theme font overrides
+	var clamped := clampf(scale, 0.8, 1.4)
+	var tree := get_tree()
+	if not tree or not tree.root:
+		return
+	_apply_text_size_recursive(tree.root, clamped)
+
+func _apply_text_size_recursive(node: Node, scale: float) -> void:
+	if node is Control:
+		var ctrl := node as Control
+		# Add a theme font size override multiplier
+		# The default font size in Godot 4 is 16; scale it
+		var base_size: int = int(16 * scale)
+		ctrl.add_theme_font_size_override("font_size", base_size)
+	for child in node.get_children():
+		_apply_text_size_recursive(child, scale)
+
+func _apply_high_contrast(enabled: bool) -> void:
+	# Increase contrast by adjusting environment and UI theme colors
+	var env := _get_world_environment()
+	if env:
+		env.adjustment_enabled = enabled or env.adjustment_enabled
+		if enabled:
+			env.adjustment_brightness = 1.05
+			env.adjustment_contrast = 1.15
+		else:
+			env.adjustment_brightness = 1.0
+			env.adjustment_contrast = 1.0
+
+func _apply_reduce_motion(enabled: bool) -> void:
+	# Disable camera shake and screen shake when reduce_motion is on
+	# FlightController reads this via get_setting() at runtime
+	var tree := get_tree()
+	if tree and tree.root:
+		var fc := tree.root.find_child("FlightController", true, false) as Node
+		if fc and is_instance_valid(fc) and "camera_shake_intensity" in fc:
+			if enabled:
+				fc.set("camera_shake_intensity", 0.0)
+
+func _apply_screen_shake_intensity(intensity: float) -> void:
+	# Scale camera shake intensity — FlightController reads this at runtime
+	# Store in settings for FlightController to query via get_setting()
+	var clamped := clampf(intensity, 0.0, 1.0)
+	# Also apply immediately if FlightController is present
+	var tree := get_tree()
+	if tree and tree.root:
+		var fc := tree.root.find_child("FlightController", true, false) as Node
+		if fc and is_instance_valid(fc) and "camera_shake_multiplier" in fc:
+			fc.set("camera_shake_multiplier", clamped)

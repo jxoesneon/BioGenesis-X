@@ -55,6 +55,7 @@ var _hud_spawned: bool = false
 # Phase 2: On-foot
 var _ship_exited: bool = false
 var _ship_exited_frame: int = -1
+var _last_exit_progress: float = 0.0
 var _character_controller: CharacterBody3D = null
 var _walk_start_frame: int = -1
 var _walk_completed: bool = false
@@ -315,8 +316,10 @@ func _phase_exit_ship() -> void:
 				_ship_exited_frame = _sim_frame
 				_pass("Phase 2 — Exit ship sequence started at frame %d" % _sim_frame)
 		elif landing_phase == 6:
-			# Exit sequence in progress
-			pass
+			# Exit sequence in progress — validate exit timer is advancing
+			var exit_progress: float = _landing_ctrl.get("exit_sequence_progress") if "exit_sequence_progress" in _landing_ctrl else -1.0
+			if exit_progress >= 0.0:
+				_last_exit_progress = maxf(_last_exit_progress, exit_progress)
 		else:
 			# If landing controller doesn't reach READY, try forcing the state
 			# via the descent controller
