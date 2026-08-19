@@ -49,6 +49,12 @@ signal inspect_organs_requested()
 var target_name: String = ""
 var target_details: String = ""
 
+# Smoothed screen positions for target indicators — eliminates jitter from
+# 3D-to-2D projection at varying frame rates and camera micro-movements.
+var _smoothed_target_pos: Vector2 = Vector2.ZERO
+var _smoothed_lead_pos: Vector2 = Vector2.ZERO
+var _smoothed_planet_marker_pos: Vector2 = Vector2.ZERO
+
 # Child Node References
 var top_bar_panel: PanelContainer
 var bottom_left_panel: PanelContainer
@@ -78,6 +84,10 @@ var _reticle_pulse_time: float = 0.0
 var _telemetry_ref: Node = null
 var _flight_controller_ref: Node = null
 var galaxy_map_instance: Node = null
+
+# Smoothed reticle position — lerps toward mouse_flight_cursor to eliminate
+# jitter from physics/render rate mismatch and per-frame input variation.
+var _smoothed_cursor: Vector2 = Vector2.ZERO
 
 # Wave Engine HUD Telemetry
 var wave_state: int = 0 ## 0=OFF, 1=CHARGING, 2=ENGAGED, 3=DISENGAGING
@@ -156,9 +166,9 @@ func _find_flight_controller() -> void:
 			return
 
 func _input(event: InputEvent) -> void:
-	if event is InputEventMouseMotion:
-		mouse_flight_cursor.x = clampf(mouse_flight_cursor.x + event.relative.x * 0.006, -1.0, 1.0)
-		mouse_flight_cursor.y = clampf(mouse_flight_cursor.y + event.relative.y * 0.006, -1.0, 1.0)
+	# Mouse input is handled solely by FlightController to avoid double-update jitter.
+	# The HUD reads mouse_flight_cursor from the controller in _process().
+	pass
 
 func _on_telemetry_updated(data: Dictionary) -> void:
 	if data.has("heart_rate_bpm"): heart_rate_bpm = data["heart_rate_bpm"]
@@ -200,6 +210,15 @@ func _process(delta: float) -> void:
 	else:
 		mouse_flight_cursor = mouse_flight_cursor.lerp(Vector2.ZERO, delta * 3.5)
 		wave_state = 0
+
+	# Smooth the reticle cursor toward the target to eliminate jitter from
+	# physics/render rate mismatch. High lerp factor = responsive but smooth.
+	_smoothed_cursor = _smoothed_cursor.lerp(mouse_flight_cursor, clampf(delta * 18.0, 0.0, 1.0))
+
+	# Smooth target and planet marker screen positions for stable indicators
+	_smoothed_target_pos = _smoothed_target_pos.lerp(target_screen_position, clampf(delta * 20.0, 0.0, 1.0))
+	_smoothed_lead_pos = _smoothed_lead_pos.lerp(lead_indicator_position, clampf(delta * 20.0, 0.0, 1.0))
+	_smoothed_planet_marker_pos = _smoothed_planet_marker_pos.lerp(_planet_marker_screen_pos, clampf(delta * 15.0, 0.0, 1.0))
 
 	# 3D World-to-Screen Target Tracking (Real Void Fauna Drones / Hostile Entities)
 	_update_target_tracking_3d()
@@ -727,7 +746,7 @@ func _draw() -> void:
 	# --------------------------------------------------------------------------
 	var max_r := tether_max_radius * ui_scale
 	var dead_r := tether_deadzone_radius * ui_scale
-	var flight_reticle_pos := center + mouse_flight_cursor * max_r
+	var flight_reticle_pos := center + _smoothed_cursor * max_r
 	var tether_vec := flight_reticle_pos - center
 	var tether_len := tether_vec.length()
 
@@ -811,7 +830,7 @@ func _draw() -> void:
 
 	# 9. 3D Target Locking Reticle / Bracket
 	if target_locked:
-		var lock_center := target_screen_position
+		var lock_center := _smoothed_target_pos
 		var box_s: float = (22.0 + sin(_reticle_pulse_time * 6.0) * 2.0) * ui_scale
 		draw_rect(Rect2(lock_center - Vector2(box_s, box_s), Vector2(box_s * 2.0, box_s * 2.0)), lock_color, false, maxf(1.0, 1.5 * ui_scale))
 
@@ -835,11 +854,11 @@ func _draw() -> void:
 			draw_string(font, lock_center + Vector2(-45 * ui_scale, box_s + 28 * ui_scale), target_details, HORIZONTAL_ALIGNMENT_LEFT, -1, int(maxf(8, 9 * ui_scale)), Color(0.0, 1.0, 0.75, 0.8))
 
 		# 10. Target Lead Indicator Dot & Convergence Vector
-		draw_circle(lead_indicator_position, 4.0 * ui_scale, Color(1.0, 0.9, 0.0, 0.9))
-		draw_arc(lead_indicator_position, 8.0 * ui_scale, 0, TAU, 16, Color(1.0, 0.9, 0.0, 0.7), 1.2)
-		draw_line(lock_center, lead_indicator_position, Color(1.0, 0.9, 0.0, 0.4), 1.0)
+		draw_circle(_smoothed_lead_pos, 4.0 * ui_scale, Color(1.0, 0.9, 0.0, 0.9))
+		draw_arc(_smoothed_lead_pos, 8.0 * ui_scale, 0, TAU, 16, Color(1.0, 0.9, 0.0, 0.7), 1.2)
+		draw_line(lock_center, _smoothed_lead_pos, Color(1.0, 0.9, 0.0, 0.4), 1.0)
 		# Line from floating flight reticle to lead pip
-		draw_line(flight_reticle_pos, lead_indicator_position, Color(1.0, 0.8, 0.0, 0.25), 1.0)
+		draw_line(flight_reticle_pos, _smoothed_lead_pos, Color(1.0, 0.8, 0.0, 0.25), 1.0)
 
 	# 10b. Planet Directional Marker — edge arrow + distance readout pointing
 	# toward the nearest celestial body so the player can find planets to land on.
@@ -858,7 +877,7 @@ func _draw_planet_marker(center: Vector2, ui_scale: float) -> void:
 	var font := get_theme_default_font()
 	var marker_col := _planet_marker_color
 	var marker_r: float = 16.0 * ui_scale
-	var marker_pos: Vector2 = _planet_marker_screen_pos
+	var marker_pos: Vector2 = _smoothed_planet_marker_pos
 
 	if _planet_marker_offscreen:
 		# Clamp the indicator to the screen edge and draw an arrow toward the
@@ -868,8 +887,8 @@ func _draw_planet_marker(center: Vector2, ui_scale: float) -> void:
 		# Direction from screen center to the (off-screen) projected position.
 		# When the planet is behind the camera, project its world direction instead.
 		var dir: Vector2 = Vector2.ZERO
-		if _planet_marker_screen_pos != Vector2.ZERO:
-			dir = (_planet_marker_screen_pos - center).normalized()
+		if _smoothed_planet_marker_pos != Vector2.ZERO:
+			dir = (_smoothed_planet_marker_pos - center).normalized()
 		else:
 			dir = Vector2(0.0, -1.0) # default up when fully behind camera
 		# Intersect the direction ray with the screen-edge rectangle.

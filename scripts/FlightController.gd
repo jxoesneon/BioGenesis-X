@@ -283,6 +283,12 @@ func _input(event: InputEvent) -> void:
 		elif event.keycode == KEY_F3:
 			toggle_collision_debug()
 
+func _process(delta: float) -> void:
+	# Damp mouse_flight_cursor at render rate (not physics rate) so the HUD
+	# reticle smooths consistently regardless of physics/render frame timing.
+	if mouse_control_enabled and wave_state == WaveState.OFF:
+		mouse_flight_cursor = mouse_flight_cursor.lerp(Vector2.ZERO, clampf(delta * 4.5, 0.0, 1.0))
+
 func _physics_process(delta: float) -> void:
 	# Skip normal rotation during wave engine CHARGING/ENGAGED — auto-align handles all rotation
 	if wave_state == WaveState.OFF or wave_state == WaveState.INHIBITED:
@@ -695,7 +701,7 @@ func _handle_rotation(delta: float) -> void:
 			yaw_input -= mouse_flight_cursor.x * 1.5
 		
 		# Smooth spring return to center for floating HUD reticle
-		mouse_flight_cursor = mouse_flight_cursor.lerp(Vector2.ZERO, delta * 4.5)
+		# (Damping now handled in _process for render-rate smoothing)
 
 	# Keyboard Pitch (Arrow keys)
 	if Input.is_key_pressed(KEY_UP):
