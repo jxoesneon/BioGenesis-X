@@ -205,6 +205,8 @@ func _process(_delta: float) -> void:
 		_flight_controller = _find_flight_controller()
 	if _flight_controller == null:
 		return
+	if not _flight_controller.is_inside_tree():
+		return
 
 	var ship_pos: Vector3 = _flight_controller.global_position
 

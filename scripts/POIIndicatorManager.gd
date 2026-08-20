@@ -371,6 +371,8 @@ func _get_color_for_planet(planet: ProceduralPlanet) -> Color:
 func _process(_delta: float) -> void:
 	if _camera == null or not is_instance_valid(_camera):
 		return
+	if not _camera.is_inside_tree():
+		return
 	if _container == null:
 		return
 
@@ -405,6 +407,8 @@ func _process(_delta: float) -> void:
 	# Update each indicator
 	for planet: Node in _indicators:
 		if not is_instance_valid(planet):
+			continue
+		if not (planet as Node3D).is_inside_tree():
 			continue
 		var data: Dictionary = _indicators[planet]
 		var bracket: Control = data["bracket"]

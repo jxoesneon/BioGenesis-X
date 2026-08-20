@@ -651,6 +651,10 @@ func _mount_far_chunk_from_data(data: Dictionary) -> void:
 				mm.set_instance_transform(i, transforms[i])
 
 		mm_inst.multimesh = mm
+		# Disable physics interpolation on streamed MultiMesh — transforms are
+		# set once at spawn time outside _physics_process, which would otherwise
+		# trigger a physics interpolation warning.
+		mm_inst.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
 		mm_inst.add_to_group("celestial_bodies")
 		# Visibility range: cull far-field MultiMesh beyond 500 km (safety net).
 		# With floating origin keeping coordinates small, frustum culling should
